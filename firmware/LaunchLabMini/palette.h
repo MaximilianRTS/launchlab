@@ -7,9 +7,7 @@
 
 // Every color the UI draws, by role (RGB565). The built-in themes keep the
 // exact values the screens used before palettes existed; custom themes set the
-// editable roles and the rest are derived from them. The replay keeps the
-// StickS3's own colors (blue screen, violet back, white USB cap): it depicts
-// the device, not the theme.
+// editable roles and the rest are derived from them.
 namespace Palette {
 // The LGFX named colors the UI used before palettes.
 constexpr uint16_t BLACK=0x0000,WHITE=0xffff,DARKGREY=0x7bef,ORANGE=0xfda0,GREEN=0x07e0,RED=0xf800;
@@ -18,14 +16,14 @@ struct Colors {
   uint16_t background=BLACK; // every screen; celebrations add light onto it
   uint16_t text=WHITE;       // headings, values, list rows
   uint16_t muted=DARKGREY;   // footers, captions, chart axes, gauge rings
-  uint16_t faint=0x39e7;     // the editor's cycle hint, replay scrub track and near box edges
+  uint16_t faint=0x39e7;     // the editor's cycle hint, replay scrub track
   uint16_t accent=0x07ff;    // selection, highlights, personal best, level in range
   uint16_t number=WHITE;     // the main screen's RPM readout
   uint16_t warning=ORANGE;   // demo labels, out of level, low battery, failures
   uint16_t ready=GREEN;      // the detector's ready status
   uint16_t alert=RED;        // the tournament's recording-only card
-  uint16_t sceneRear=0x18c3; // replay box rear edges
-  uint16_t scenePlane=0x2965;// replay floor plane
+  uint16_t sceneRear=0x18c3; // replay floor rear edges
+  uint16_t scenePlane=0x2965;// replay floor near edges
   bool operator==(const Colors &o)const{return std::memcmp(this,&o,sizeof(Colors))==0;}
 };
 

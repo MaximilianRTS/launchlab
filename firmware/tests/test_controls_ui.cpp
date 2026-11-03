@@ -25,6 +25,8 @@ struct LGFXBase {
   int width(){return 135;}
   void setTextDatum(int d){datum=d;}void setTextColor(uint16_t color,uint16_t){ink=color;}
   void fillRect(int x,int y,int w,int h,uint16_t){assert(x>=0 && y>=0 && x+w<=135 && y+h<=240);}
+  void fillScreen(uint16_t){}
+  void fillRoundRect(int x,int y,int w,int h,int,uint16_t){fillRect(x,y,w,h,0);}
   void drawRoundRect(int x,int y,int w,int h,int,uint16_t){fillRect(x,y,w,h,0);}
   int textWidth(const char *text,const int *font){return int(std::strlen(text))*(*font==4?18:8);}
   // Font 2 is proportional: 8 px a glyph, but 5 for i, l, space and narrow
@@ -54,11 +56,11 @@ int main() {
   using namespace Controls;unsigned renders=0;
   for(unsigned row=0;row<MENU_COUNT;++row){lgfx::LGFXBase g;ControlsUI::list(g,"Menu",ControlsUI::MENU,MENU_COUNT,row);assert(g.footers==1);++renders;}
   for(unsigned row=0;row<4;++row){lgfx::LGFXBase g;ControlsUI::list(g,"History",ControlsUI::HISTORY,4,row);assert(g.footers==1);++renders;}
-  uint8_t values[]={10,0,100,1,0,0,0,2,2,0,1};
+  uint8_t values[]={10,0,100,1,0,0,0,2,2,0,1,1};
   for(unsigned row=0;row<=SETTING_COUNT;++row){lgfx::LGFXBase g;State state;state.setting=row;ControlsUI::settings(g,state,values);assert(g.footers==1);++renders;}
   // Lowest and highest draft for each setting. A named array keeps the values
   // alive for the loop; a conditional initializer_list would dangle.
-  const unsigned extremes[][2]={{1,10},{0,1},{10,100},{0,1},{0,1},{0,Appearance::THEMES-1},{0,Appearance::EFFECTS-1},{0,2},{0,2},{0,1},{0,1}};
+  const unsigned extremes[][2]={{1,10},{0,1},{10,100},{0,1},{0,1},{0,Appearance::THEMES-1},{0,Appearance::EFFECTS-1},{0,2},{0,2},{0,3},{0,1},{0,1}};
   static_assert(sizeof(extremes)/sizeof(extremes[0])>=EDITABLE_SETTING_COUNT,"one range per editable setting");
   for(unsigned row=0;row<EDITABLE_SETTING_COUNT;++row)for(unsigned value:extremes[row]) {
     lgfx::LGFXBase g;State state;state.setting=row;state.draft=value;
@@ -190,5 +192,15 @@ int main() {
   for(const char *label:{"Enter tournament","Exit tournament","Cancel change","Back"})for(unsigned elapsed:{0u,999u,1000u,10000u}) {
     lgfx::LGFXBase g;ControlsUI::hold(g,label,elapsed,1000);assert(g.footers==1);++renders;
   }
+  {lgfx::LGFXBase r;ControlsUI::restarting(r);assert(r.drew("Saving, restarting"));++renders;}
+  // The Bluetooth page: every row and state fits, the longest name too.
+  for(const char *name:{"LaunchLab-AB0C","LaunchLab-ABCDEFGHIJKLMNOP"})for(unsigned row=0;row<3;++row)for(bool on:{false,true})for(bool linked:{false,true})for(int bonds:{0,1,3}) {
+    lgfx::LGFXBase g;ControlsUI::bluetoothPage(g,row,on,linked,name,bonds);
+    assert(g.footers==1 && g.drew("LaunchLab-") && g.drew(name+10) && g.drew("Forget phones") && g.drew(on?"On":"Off"));++renders;
+  }
+  for(bool forget:{false,true}){lgfx::LGFXBase g;ControlsUI::forgetPhones(g,forget);assert(g.footers==1);++renders;}
+  // The number keeps its leading zeros; with no bond, only B is offered.
+  {lgfx::LGFXBase g;ControlsUI::comparison(g,7042,false);assert(g.drew("007 042") && g.footers==1 && g.drew("A confirm, B reject"));++renders;}
+  {lgfx::LGFXBase g;ControlsUI::comparison(g,999999,true);assert(g.drew("999 999") && g.drew("B reject") && !g.drew("A confirm, B reject"));++renders;}
   std::cout<<"PASS: "<<renders<<" actual menu/editor/confirmation/hold renders fit135x240; one-line footers, conservative glyph bounds\n";
 }

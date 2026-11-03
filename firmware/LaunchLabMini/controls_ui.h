@@ -10,10 +10,11 @@
 #include "wipe_confirmation.h"
 
 namespace ControlsUI {
-static constexpr const char *MENU[]={"History","New session","Battery","Settings","Tournament","String wear check","Back"};
+static constexpr const char *MENU[]={"History","New session","Battery","Settings","Tournament","String wear check","Live tilt","Bluetooth","Back"};
 static constexpr const char *HISTORY[]={"Launches","Pull trend","Session trend","Back"};
 // By Controls::Setting value; the list shows them in Controls::ORDER.
-static constexpr const char *SETTINGS[]={"Sleep after","RPM method","Brightness","Flip display","Sensor profile","Theme","Best effect","Celebrate","Sound","Mounting","Shake to wake","Wipe all","Back"};
+static constexpr const char *SETTINGS[]={"Sleep after","RPM method","Brightness","Flip display","Sensor profile","Theme","Best effect","Celebrate","Sound","Mounting","Shake to wake","Bluetooth","Wipe all","Back"};
+static_assert(sizeof(SETTINGS)/sizeof(SETTINGS[0])==Controls::SETTING_COUNT+1,"one label per setting, then Back");
 // Set by the UI owner before rendering: the visible theme's colors, the
 // names the Theme row shows (custom themes; the built-in names otherwise)
 // and the milestone table the Celebrate editor summarizes.
@@ -32,8 +33,10 @@ inline void heading(lgfx::LGFXBase &g,const char *label) {
 inline void list(lgfx::LGFXBase &g,const char *title,const char *const *labels,unsigned count,unsigned selected) {
   heading(g,title);
   for(unsigned i=0;i<count;++i) {
-    const int y=42+int(i)*27;
-    if(i==selected)g.drawRoundRect(4,y-4,g.width()-8,25,4,colors.accent);
+    // The menu's nine rows close up to clear the footer.
+    const bool dense=count>7;
+    const int y=(dense?32:42)+int(i)*(dense?22:27);
+    if(i==selected)g.drawRoundRect(4,y-(dense?3:4),g.width()-8,dense?22:25,4,colors.accent);
     g.setTextColor(i==selected?colors.accent:colors.text,colors.background);
     g.drawString(labels[i],g.width()/2,y,2);
   }
@@ -52,14 +55,15 @@ inline void value(char *out,unsigned length,unsigned setting,unsigned value) {
     case Controls::Setting::Sound:snprintf(out,length,"%s",Appearance::label(Appearance::Sound(value)));break;
     case Controls::Setting::Mount:snprintf(out,length,"%s",MountOrientation::label(MountOrientation::Mode(value)));break;
     case Controls::Setting::ShakeWake:snprintf(out,length,"%s",value?"On":"Off");break;
+    case Controls::Setting::Bluetooth:snprintf(out,length,"%s",value?"On":"Off");break;
     case Controls::Setting::WipeAll:snprintf(out,length,"Erase device data");break;
   }
 }
 inline void settings(lgfx::LGFXBase &g,const Controls::State &state,const uint8_t *values) {
   heading(g,"Settings");char text[24];
-  // Pages of five rows (Controls::ORDER): general, appearance, then
-  // Mounting, Wipe all and Back.
-  const unsigned at=Controls::position(state.setting),first=at<5?0:at<10?5:10,last=std::min(first+4,Controls::SETTING_COUNT);
+  // Pages of five rows (Controls::ORDER): general, appearance, Mounting to
+  // Wipe all, then Back.
+  const unsigned at=Controls::position(state.setting),first=at/5*5,last=std::min(first+4,Controls::ROWS);
   for(unsigned p=first;p<=last;++p) {
     const unsigned i=Controls::rowAt(p);
     const int y=33+int(p-first)*31;
@@ -69,7 +73,7 @@ inline void settings(lgfx::LGFXBase &g,const Controls::State &state,const uint8_
     if(i<Controls::SETTING_COUNT){value(text,sizeof(text),i,i<Controls::EDITABLE_SETTING_COUNT?values[i]:0);g.drawString(text,g.width()/2,y+18,1);}
   }
   if(first<10){g.setTextColor(colors.muted,colors.background);g.drawString(first?"B Next: mounting":"B Next: appearance",g.width()/2,194,1);}
-  footer(g,state.setting==unsigned(Controls::Setting::WipeAll)?"A Open  B Next":state.setting<Controls::SETTING_COUNT?"A Edit  B Next":"A Back  B Next");
+  footer(g,state.setting>=unsigned(Controls::Setting::WipeAll) && state.setting<Controls::SETTING_COUNT?"A Open  B Next":state.setting<Controls::SETTING_COUNT?"A Edit  B Next":"A Back  B Next");
 }
 inline void editor(lgfx::LGFXBase &g,const Controls::State &state,bool failed,bool changedMetric) {
   heading(g,SETTINGS[state.setting]);char text[24];value(text,sizeof(text),state.setting,state.draft);
@@ -123,6 +127,60 @@ inline void session(lgfx::LGFXBase &g,bool start) {
     g.drawString(labels[i],g.width()/2,y,2);
   }
   footer(g,"A Choose  B Next");
+}
+// Saving, then restarting to apply Bluetooth.
+inline void restarting(lgfx::LGFXBase &g) {
+  g.fillRoundRect(6,90,g.width()-12,40,5,colors.background);
+  g.drawRoundRect(6,90,g.width()-12,40,5,colors.warning);
+  g.setTextColor(colors.warning,colors.background);
+  g.drawString("Saving, restarting",g.width()/2,103,1);
+}
+// The Bluetooth page: On or Off (A changes it, which restarts the stick), the name
+// on two lines since the longest is wider than the screen, and Forget phones.
+inline void bluetoothPage(lgfx::LGFXBase &g,unsigned row,bool on,bool connected,const char *name,int bonds) {
+  heading(g,"Bluetooth");
+  const int cx=g.width()/2;
+  auto choice=[&](unsigned i,int y,int height,const char *label,const char *detail) {
+    if(i==row)g.drawRoundRect(4,y-3,g.width()-8,height,4,colors.accent);
+    g.setTextColor(i==row?colors.accent:colors.text,colors.background);
+    g.drawString(label,cx,y,2);
+    if(detail)g.drawString(detail,cx,y+18,1);
+  };
+  choice(0,33,30,"Bluetooth",on?"On":"Off");
+  char prefix[11];snprintf(prefix,sizeof(prefix),"%s",name);
+  g.setTextColor(colors.text,colors.background);g.drawString(prefix,cx,72,1);
+  g.drawString(strlen(name)>10?name+10:"",cx,83,1);
+  g.setTextColor(connected?colors.ready:colors.muted,colors.background);
+  g.drawString(!on?"Radio off":connected?"Phone connected":"No phone connected",cx,97,1);
+  char line[24];snprintf(line,sizeof(line),"%d phone%s paired",bonds,bonds==1?"":"s");
+  g.setTextColor(colors.muted,colors.background);g.drawString(line,cx,109,1);
+  choice(1,128,24,"Forget phones",nullptr);
+  choice(2,160,24,"Back",nullptr);
+  footer(g,row==0?(on?"A Turn off  B Next":"A Turn on  B Next"):row==1?"A Open  B Next":"A Back  B Next");
+}
+// Forget phones: chosen like New session, since it needs the phone paired again.
+inline void forgetPhones(lgfx::LGFXBase &g,bool forget) {
+  heading(g,"Forget phones");g.setTextColor(colors.text,colors.background);
+  g.drawString("Pair again afterwards",g.width()/2,42,1);
+  const char *labels[]={"Cancel","Forget"};
+  for(unsigned i=0;i<2;++i) {
+    const int y=91+int(i)*42;
+    if(bool(i)==forget)g.drawRoundRect(12,y-5,g.width()-24,32,4,colors.accent);
+    g.setTextColor(bool(i)==forget?colors.accent:colors.text,colors.background);
+    g.drawString(labels[i],g.width()/2,y,2);
+  }
+  footer(g,"A Choose  B Next");
+}
+// A phone asks to pair: over whatever was on screen, until answered or timed out.
+// Automatic: the stick has no bond, so it accepts by itself shortly; B still rejects.
+inline void comparison(lgfx::LGFXBase &g,uint32_t number,bool automatic) {
+  g.fillScreen(colors.background);
+  heading(g,"Pair phone?");
+  const int cx=g.width()/2;
+  g.setTextColor(colors.text,colors.background);g.drawString(automatic?"Check it on the phone":"Same number on phone?",cx,60,1);
+  char digits[8];snprintf(digits,sizeof(digits),"%03u %03u",unsigned(number/1000%1000),unsigned(number%1000));
+  g.setTextColor(colors.accent,colors.background);g.drawString(digits,cx,95,4);
+  footer(g,automatic?"B reject":"A confirm, B reject");
 }
 inline void hold(lgfx::LGFXBase &g,const char *label,unsigned elapsed,unsigned duration) {
   footer(g,label);
@@ -190,8 +248,8 @@ inline void wipe(lgfx::LGFXBase &g,const WipeConfirmation &flow,uint32_t now,boo
 // second after a burst a release counts as that burst's rewind and is never
 // measured, so PULL OUT shows WAIT and LET GO waits for it (0.20.4).
 // mount: the Mounting setting the tilt is read in (Settings, Mounting); a
-// Sidecar install measured as Top reads its level 90 degrees off, and the
-// page then asks about the other one (otherMount).
+// Sidecar install measured as Top (or a turned Top) reads its level 90 degrees
+// off, and the page then asks about the other one (otherMount).
 inline void wearCheck(lgfx::LGFXBase &g,const WearCheck::Session &wear,const WearCheck::Tilt &rawTilt,const WearCheck::Tilt &displayTilt,
   bool detectorReady=true,const char *mount="Top mount",const char *otherMount="Sidecar install?") {
   const int cx=g.width()/2;

@@ -104,6 +104,12 @@ inline Quaternion multiply(const Quaternion &a,const Quaternion &b) {
   return {a.w*b.w-a.x*b.x-a.y*b.y-a.z*b.z,a.w*b.x+a.x*b.w+a.y*b.z-a.z*b.y,
     a.w*b.y-a.x*b.z+a.y*b.w+a.z*b.x,a.w*b.z+a.x*b.y-a.y*b.x+a.z*b.w};
 }
+// A shown pose of the launcher as levelled by levelReference: its up in launcher
+// axes reads through the reference, as the level does. Recorded data never changes.
+inline Quaternion levelled(const Quaternion &pose) {
+  if(!levelReference.active)return pose;
+  return multiply(pose,{levelReference.w,-levelReference.x,-levelReference.y,0});
+}
 inline Quaternion relative(const Quaternion &onset,const Quaternion &pose) {
   // Express turn in the launch's initial sensor axes. This cancels arbitrary
   // global heading and never treats constant heading offsets as launch errors.

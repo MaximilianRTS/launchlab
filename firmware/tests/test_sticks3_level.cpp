@@ -21,6 +21,13 @@ int main() {
     assert(flipOff.valid() && near(flipOff.degrees,30) && near(flipOff.right,-sign) && near(flipOff.down,0));
     assert(flipOn.valid() && near(flipOn.degrees,30) && near(flipOn.right,sign) && near(flipOn.down,0));
     assert(near(r.right,sign)); // Drawing does not mutate recorded/native data.
+    // Turned on the launcher, the dot stays true to the glass: launcher +X is the
+    // stick's screen-top for Top 90 R and its screen-bottom for Top 90 L.
+    {
+      const auto cw=L::forDisplay(r,true,1),ccw=L::forDisplay(r,true,-1);
+      assert(near(cw.degrees,30) && near(cw.right,0) && near(cw.down,-sign));
+      assert(near(ccw.degrees,30) && near(ccw.right,0) && near(ccw.down,sign));
+    }
     L other;other.feed(0,sign*0.5f,std::sqrt(0.75f),1000);
     r=other.reading(1000);assert(near(r.right,0) && near(r.down,-sign));
     flipOff=L::forDisplay(r,false);flipOn=L::forDisplay(r,true);

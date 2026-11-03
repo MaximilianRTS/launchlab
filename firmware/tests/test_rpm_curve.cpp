@@ -13,6 +13,10 @@ static void finish(D &d){level(d,250,1600000);}
 static uint32_t periodOf(float rpm){return uint32_t(lroundf(60e6f/rpm/20))*20;}
 static bool near(float a,float b,float tolerance){return std::fabs(a-b)<=tolerance;}
 int main() {
+  {
+    D::Curve fresh;assert(fresh.leadMs==0);
+    fresh.leadMs=9;fresh.clear();assert(fresh.leadMs==0);
+  }
   // A pull: the gear starting from rest, rising to 6,000 RPM, then slowing
   // until two slow turns end it. Turn periods are whole samples.
   {
@@ -31,6 +35,10 @@ int main() {
     // and every turn is a point, through both slow turns that ended it.
     assert(c.stride==1);
     assert(near(c.rpm[0],400,5));
+    // ms 0 is the first lead turn's start, leadMs before the optical start where
+    // the confirming turns begin: here the 400 and 700 RPM turns lead, and the
+    // optical start is the end of the second point.
+    assert(near(c.leadMs,60000.f/400+60000.f/700,1.5f) && c.leadMs==c.ms[1]);
     assert(near(c.peak(),6000,30));
     for(unsigned i=1;i<c.count;++i)assert(c.ms[i]>c.ms[i-1]);
     assert(near(c.rpm[c.count-1],3500,20) && near(c.rpm[c.count-2],3900,20));
@@ -50,6 +58,8 @@ int main() {
     assert(d.launches==1 && d.ended==D::End::Slowdown);
     const auto &c=d.curve;
     assert(c.stride>1 && c.count<=D::Curve::POINTS && c.count>D::Curve::POINTS/2);
+    // No turn led into this pull: the curve starts at the optical start.
+    assert(c.leadMs==0);
     assert(near(c.peak(),3300,15));
     for(unsigned i=1;i<c.count;++i)assert(c.ms[i]>c.ms[i-1]);
     const float total=250*20.f+60000.f/1800+60000.f/1600;

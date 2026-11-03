@@ -71,6 +71,10 @@ struct StoreFake {
 }practiceStore;
 static LaunchMotion::Trace completedTrace,latestMotion,referenceMotion,demoMotion,demoReference;
 // The RPM curve's copy and log (takeCurve) is not exercised here.
+static MountOrientation::Mode liveMount=MountOrientation::Mode::Top;
+// The loop's page check for Live tilt; this harness is never on it.
+namespace Controls {enum class Page {Main,LiveTilt};}
+static struct {Controls::Page page=Controls::Page::Main;} controls;
 static AnalogTachometer::Curve latestCurve;static void takeCurve(const Snapshot&){}
 struct ImuFake {
   struct State {uint64_t fusedUs;};

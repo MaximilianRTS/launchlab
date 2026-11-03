@@ -87,7 +87,9 @@ public:
     uint16_t count=0,stride=1;
     // Turns gathered toward the next point while stride>1.
     uint16_t pendingTurns=0,pendingRpm=0;
-    void clear(){count=pendingTurns=pendingRpm=0;stride=1;}
+    // How far ms 0 lies before the optical start (burstStartUs): the lead turns.
+    uint16_t leadMs=0;
+    void clear(){count=pendingTurns=pendingRpm=leadMs=0;stride=1;}
     void add(uint32_t endMs,uint32_t period) {
       const uint16_t turn=uint16_t(std::min<uint32_t>(65535,(60000000u+period/2)/period));
       pendingRpm=std::max(pendingRpm,turn);
@@ -304,6 +306,7 @@ private:
     for(unsigned i=0;i<leadCount;++i)if(leadEnd[i]==burstStartUs){first=last=i+1;break;}
     while(first && last-first<LEAD && leadPeriod[first-1]<=LEAD_MAX_PERIOD_US)--first;
     if(first<last)curveOriginUs=leadEnd[first]-leadPeriod[first];
+    curve.leadMs=uint16_t(std::min<uint64_t>(65535,(burstStartUs-curveOriginUs)/1000));
     for(unsigned i=first;i<last;++i)addCurveTurn(leadEnd[i],leadPeriod[i]);
     const uint32_t a=periods[nPeriods%3],b=periods[(nPeriods+1)%3];
     addCurveTurn(burstStartUs+a,a);addCurveTurn(burstStartUs+a+b,b);addCurveTurn(stamp,periods[(nPeriods+2)%3]);

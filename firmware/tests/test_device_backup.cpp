@@ -275,7 +275,7 @@ int main() {
 
   // Expanded accents travel through the complete USB backup, including the
   // highest new ID and either saved Flip switch value.
-  for(unsigned theme=0;theme<Appearance::THEMES;++theme)for(bool flipped:{false,true})for(auto mount:{MountOrientation::Mode::Top,MountOrientation::Mode::Sidecar}) {
+  for(unsigned theme=0;theme<Appearance::THEMES;++theme)for(bool flipped:{false,true})for(auto mount:{MountOrientation::Mode::Top,MountOrientation::Mode::Sidecar,MountOrientation::Mode::Top90L,MountOrientation::Mode::Top90R}) {
     auto trial=original;trial.settings.flipped=flipped;trial.settings.mount=mount;
     assert(trial.look.select(Appearance::Theme(theme),Appearance::Effect::Lightning));
     Buffer encoded;const auto length=encode(trial,"0.12.1-sticks3-test",encoded);
@@ -286,10 +286,24 @@ int main() {
   // Sidecar uses only byte 5 and Shake to wake Off (0.20.2) only byte 6.
   const size_t settingsBody=n-4-SETTINGS_BYTES;
   assert(buffer[settingsBody+5]==0 && buffer[settingsBody+6]==0 && buffer[settingsBody+7]==0);
+  // A rotated Mounting is byte 5 beyond what older firmware's check accepts
+  // (it knows 0 and 1), so that firmware refuses the backup before writing.
+  for(auto mount:{MountOrientation::Mode::Top90L,MountOrientation::Mode::Top90R}) {
+    auto rotated=original;rotated.settings.mount=mount;
+    Buffer encoded;const auto length=encode(rotated,"0.12.1-sticks3-test",encoded);
+    assert(encoded[length-4-SETTINGS_BYTES+5]==uint8_t(mount) && uint8_t(mount)>1);
+  }
   decoded.settings.mount=MountOrientation::Mode::Sidecar;decoded.settings.shakeWake=false;
   assert(decode(buffer.data(),n,decoded) && decoded.settings.mount==MountOrientation::Mode::Top && decoded.settings.shakeWake);
+  // Bluetooth On is byte 7: a default backup keeps it zero, as older firmware needs.
+  {
+    Buffer on=buffer;on[settingsBody+7]=1;
+    put32(on.data()+n-4,checksum(on.data(),n-4));
+    assert(decode(on.data(),n,decoded) && decoded.settings.bluetooth);
+    assert(decode(buffer.data(),n,decoded) && !decoded.settings.bluetooth);
+  }
   for(unsigned offset:{5u,6u,7u}) {
-    Buffer bad=buffer;bad[settingsBody+offset]=offset==7?1:2;
+    Buffer bad=buffer;bad[settingsBody+offset]=offset==5?MountOrientation::MODES:2;
     put32(bad.data()+n-4,checksum(bad.data(),n-4));
     auto retained=decoded;assert(!decode(bad.data(),n,decoded) && same(decoded,retained));
   }

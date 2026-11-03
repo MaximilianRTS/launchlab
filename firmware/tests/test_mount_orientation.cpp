@@ -35,6 +35,19 @@ static void equalSample(const Sample &a,const Sample &b) {
 static void sidecarNative(const float *top,float *side) {
   side[0]=top[2];side[1]=top[1];side[2]=-top[0];
 }
+// Top turned 90 degrees, from the stated physical axes. L (counter-clockwise from
+// above): Device +X = launcher +Y, device +Y = launcher -X. R is its mirror turn.
+static void top90LNative(const float *top,float *device) {
+  const float x=top[0],y=top[1],z=top[2];device[0]=y;device[1]=-x;device[2]=z;
+}
+static void top90RNative(const float *top,float *device) {
+  const float x=top[0],y=top[1],z=top[2];device[0]=-y;device[1]=x;device[2]=z;
+}
+static float determinant(Mode mode) {
+  const float basis[3][3]={{1,0,0},{0,1,0},{0,0,1}};float m[3][3];
+  for(unsigned j=0;j<3;++j)MountOrientation::mapVector(mode,basis[j],m[j]);
+  float c[3];cross(m[1],m[2],c);return dot(m[0],c);
+}
 static Sample measurement(uint64_t us,Quaternion pose,const float *rate,const float *bias,float acceleration=0) {
   Sample s;s.us=us;const float up[3]={acceleration,0,1};inverse(pose).rotate(up,s.a);
   for(unsigned j=0;j<3;++j)s.g[j]=rate[j]+bias[j];return s;
@@ -42,9 +55,12 @@ static Sample measurement(uint64_t us,Quaternion pose,const float *rate,const fl
 
 static void testMapping() {
   assert(MountOrientation::valid(0) && MountOrientation::valid(1));
-  assert(!MountOrientation::valid(2) && !MountOrientation::valid(256));
+  assert(MountOrientation::valid(2) && MountOrientation::valid(3) && MountOrientation::MODES==4);
+  assert(!MountOrientation::valid(4) && !MountOrientation::valid(256));
   assert(std::strcmp(MountOrientation::label(Mode::Top),"Top")==0);
   assert(std::strcmp(MountOrientation::label(Mode::Sidecar),"Sidecar")==0);
+  assert(std::strcmp(MountOrientation::label(Mode::Top90L),"Top 90 L")==0);
+  assert(std::strcmp(MountOrientation::label(Mode::Top90R),"Top 90 R")==0);
   const float basis[3][3]={{1,0,0},{0,1,0},{0,0,1}};
   const float expected[3][3]={{0,0,1},{0,1,0},{-1,0,0}};
   float mapped[3][3];
@@ -65,7 +81,7 @@ static void testMapping() {
   float identity[3];MountOrientation::mapVector(Mode::Top,special,identity);
   assert(std::memcmp(special,identity,sizeof identity)==0);
   MountOrientation::mapVector(Mode::Top,identity,identity);assert(std::memcmp(special,identity,sizeof identity)==0);
-  MountOrientation::mapVector(static_cast<Mode>(2),a,identity);assert(std::memcmp(a,identity,sizeof identity)==0);
+  MountOrientation::mapVector(static_cast<Mode>(4),a,identity);assert(std::memcmp(a,identity,sizeof identity)==0);
   // An upright canonical launcher puts gravity in Sidecar native +X.
   const float sideUp[3]={1,0,0};float topUp[3];MountOrientation::mapVector(Mode::Sidecar,sideUp,topUp);
   const float expectedUp[3]={0,0,1};equalVector(topUp,expectedUp);
@@ -75,8 +91,83 @@ static void testMapping() {
   sideLevel.feed(mappedTilt[0],mappedTilt[1],mappedTilt[2],1);equalLevel(topLevel.reading(1),sideLevel.reading(1));
   assert(near(topLevel.reading(1).degrees,20,.0001f) && topLevel.reading(1).right>0);
 }
+static const Mode ALL[]={Mode::Top,Mode::Sidecar,Mode::Top90L,Mode::Top90R};
+static void testRotatedMappings() {
+  // The stated mappings, axis by axis. L: launcher = (-y, x, z). R: (y, -x, z).
+  const float x[3]={1,0,0},y[3]={0,1,0},z[3]={0,0,1},minusX[3]={-1,0,0},minusY[3]={0,-1,0};
+  float out[3];
+  MountOrientation::mapVector(Mode::Top90L,x,out);equalVector(out,y);
+  MountOrientation::mapVector(Mode::Top90L,y,out);equalVector(out,minusX);
+  MountOrientation::mapVector(Mode::Top90L,z,out);equalVector(out,z);
+  MountOrientation::mapVector(Mode::Top90R,x,out);equalVector(out,minusY);
+  MountOrientation::mapVector(Mode::Top90R,y,out);equalVector(out,x);
+  MountOrientation::mapVector(Mode::Top90R,z,out);equalVector(out,z);
+  // Four quarter turns about +Z: L is the inverse of R, and L twice is a half turn.
+  const float v[3]={.3f,-.7f,1.1f};float l[3],lr[3],ll[3];
+  MountOrientation::mapVector(Mode::Top90L,v,l);MountOrientation::mapVector(Mode::Top90R,l,lr);equalVector(lr,v);
+  MountOrientation::mapVector(Mode::Top90L,l,ll);const float half[3]={-v[0],-v[1],v[2]};equalVector(ll,half);
+  // A turn measured against launcher axes: device +X along launcher +Y is 90
+  // degrees counter-clockwise from launcher +X, seen from above (+Z toward you).
+  assert(std::atan2(y[1],y[0])*DEG>0);
+  const float b[3]={-2.3f,4.7f,.8f};
+  for(const Mode mode:ALL) {
+    // Proper rotations: determinant +1, lengths, angles and handedness kept, so
+    // the same mapping is right for gyro and accelerometer.
+    assert(near(determinant(mode),1));
+    float ma[3],mb[3],ab[3],mab[3],mc[3];
+    MountOrientation::mapVector(mode,v,ma);MountOrientation::mapVector(mode,b,mb);
+    assert(near(dot(v,v),dot(ma,ma),1e-5f) && near(dot(v,b),dot(ma,mb),1e-5f));
+    cross(v,b,ab);MountOrientation::mapVector(mode,ab,mab);cross(ma,mb,mc);equalVector(mab,mc,1e-5f);
+    float inPlace[3]={v[0],v[1],v[2]};MountOrientation::mapVector(mode,inPlace,inPlace);equalVector(inPlace,ma);
+    // unmapVector inverts mapVector, also in place.
+    float back[3];MountOrientation::unmapVector(mode,ma,back);equalVector(back,v);
+    MountOrientation::unmapVector(mode,ma,ma);equalVector(ma,v);
+  }
+  // Every pair: remapVector gives what the other Mounting reads of the sample.
+  for(const Mode from:ALL)for(const Mode to:ALL) {
+    float in[3],expect[3],got[3],there[3];
+    MountOrientation::mapVector(from,v,in);MountOrientation::mapVector(to,v,expect);
+    MountOrientation::remapVector(from,to,in,got);equalVector(got,expect);
+    // Round trip, also aliased.
+    MountOrientation::remapVector(to,from,got,there);equalVector(there,in);
+    MountOrientation::remapVector(from,to,in,in);equalVector(in,expect);
+  }
+  // Gravity: a level launcher reads level in every Top turn, its screen up. The
+  // ripcord down reads 90 degrees with the launcher's own +Y end down, whichever
+  // stick edge that is. Tilt reads in launcher axes, not the stick's.
+  for(const Mode mode:{Mode::Top,Mode::Top90L,Mode::Top90R}) {
+    float mapped[3];MountOrientation::mapVector(mode,z,mapped);equalVector(mapped,z);
+    StickS3Level level;level.feed(mapped[0],mapped[1],mapped[2],1);
+    assert(level.reading(1).valid() && near(level.reading(1).degrees,0,.001f));
+  }
+  auto tiltedDevice=[](void (*native)(const float *,float *),float *device){
+    // Launcher tipped 20 degrees: gravity-up gains launcher +X.
+    const float top[3]={std::sin(20/DEG),0,std::cos(20/DEG)};native(top,device);};
+  const float top[3]={std::sin(20/DEG),0,std::cos(20/DEG)};
+  StickS3Level expected;expected.feed(top[0],top[1],top[2],1);
+  struct Turned {Mode mode;void (*native)(const float *,float *);};
+  for(const Turned t:{Turned{Mode::Top90L,top90LNative},Turned{Mode::Top90R,top90RNative}}) {
+    float device[3],mapped[3];tiltedDevice(t.native,device);
+    MountOrientation::mapVector(t.mode,device,mapped);equalVector(mapped,top);
+    StickS3Level level;level.feed(mapped[0],mapped[1],mapped[2],1);equalLevel(level.reading(1),expected.reading(1));
+    // Read as plain Top the same sample tips another way: the Mounting matters.
+    StickS3Level plain;plain.feed(device[0],device[1],device[2],1);
+    assert(near(plain.reading(1).degrees,20,.001f));
+    assert(!near(plain.reading(1).right,expected.reading(1).right,.1f));
+  }
+  // Wear check's hint: level tells only Sidecar from the Top family, each way
+  // it asks something a remap can actually show, and its captions name the mode.
+  for(const Mode mode:ALL) {
+    const Mode other=MountOrientation::levelAlternative(mode);
+    assert((mode==Mode::Sidecar)==(other==Mode::Top));
+    assert(other==Mode::Top || other==Mode::Sidecar);
+    assert(std::strstr(MountOrientation::mountCaption(mode),MountOrientation::label(mode))==MountOrientation::mountCaption(mode));
+    assert(std::strncmp(MountOrientation::hintCaption(mode),MountOrientation::label(other),std::strlen(MountOrientation::label(other)))==0);
+    assert(std::strlen(MountOrientation::mountCaption(mode))*6<135 && std::strlen(MountOrientation::hintCaption(mode))*6<135);
+  }
+}
 
-enum class Pipeline { DirectTop, MappedTop, MappedSidecar, UnmappedSidecar, AccelOnlySidecar };
+enum class Pipeline { DirectTop, MappedTop, MappedSidecar, MappedTop90L, MappedTop90R, UnmappedSidecar, AccelOnlySidecar };
 struct Run {
   Trace trace;Sample last;std::vector<Sample> emitted;float bias[3]={};
   uint32_t updates=0,resets=0;float maximumTurnError=0;
@@ -90,8 +181,10 @@ static Run run(Pipeline pipeline) {
     if(pipeline==Pipeline::MappedSidecar || pipeline==Pipeline::UnmappedSidecar || pipeline==Pipeline::AccelOnlySidecar) {
       sidecarNative(canonical.a,raw.a);sidecarNative(canonical.g,raw.g);
     }
-    if(pipeline==Pipeline::MappedTop || pipeline==Pipeline::MappedSidecar || pipeline==Pipeline::AccelOnlySidecar) {
-      const Mode mode=pipeline==Pipeline::MappedTop?Mode::Top:Mode::Sidecar;
+    if(pipeline==Pipeline::MappedTop90L){top90LNative(canonical.a,raw.a);top90LNative(canonical.g,raw.g);}
+    if(pipeline==Pipeline::MappedTop90R){top90RNative(canonical.a,raw.a);top90RNative(canonical.g,raw.g);}
+    if(pipeline==Pipeline::MappedTop || pipeline==Pipeline::MappedSidecar || pipeline==Pipeline::MappedTop90L || pipeline==Pipeline::MappedTop90R || pipeline==Pipeline::AccelOnlySidecar) {
+      const Mode mode=pipeline==Pipeline::MappedTop?Mode::Top:pipeline==Pipeline::MappedTop90L?Mode::Top90L:pipeline==Pipeline::MappedTop90R?Mode::Top90R:Mode::Sidecar;
       MountOrientation::mapVector(mode,raw.a,raw.a);
       if(pipeline!=Pipeline::AccelOnlySidecar)MountOrientation::mapVector(mode,raw.g,raw.g);
     }
@@ -125,19 +218,19 @@ static void equalRun(const Run &a,const Run &b) {
   // byte equality above is the stronger canonical-storage invariant.
   assert(comparison.valid && comparison.turnDegrees<.05f && comparison.accelG<.00001f && comparison.gyroDps<.0001f);
   MotionReplay::Replay ra,rb;assert(ra.build(a.trace) && rb.build(decoded));
-  MotionReplay::Cube cube;
   for(unsigned i=0;i<MotionReplay::Replay::COUNT;++i) {
     assert(ra.ms[i]==rb.ms[i] && Quaternion::difference(ra.pose[i],rb.pose[i])<.001f);
-    for(unsigned vertex=0;vertex<8;++vertex)assert((cube.body(ra,i,vertex)-cube.body(rb,i,vertex)).length()<1e-6f);
+    const auto va=MotionReplay::Launcher::axes(ra.pose[i],true),vb=MotionReplay::Launcher::axes(rb.pose[i],true);
+    for(const auto &vertex:MotionReplay::Launcher::BODY)assert((va.at(vertex.low)-vb.at(vertex.low)).length()<1e-5f);
   }
   for(bool flip:{false,true}) {
     equalLevel(StickS3Level::forDisplay(a.trace.startLevel,flip),StickS3Level::forDisplay(b.trace.startLevel,flip));
     for(int ms=-400;ms<=550;ms+=17) {
       const auto qa=MotionReplay::forDisplay(ra.at(ms),flip),qb=MotionReplay::forDisplay(rb.at(ms),flip);
       assert(Quaternion::difference(qa,qb)<.001f);
-      const auto pa=MotionReplay::camera(MotionReplay::rotate(qa,{.4f,.65f,.12f}));
-      const auto pb=MotionReplay::camera(MotionReplay::rotate(qb,{.4f,.65f,.12f}));
-      assert((pa-pb).length()<1e-6f);
+      const auto pa=MotionReplay::camera(MotionReplay::Launcher::axes(qa,flip).at({2.1f,.3f,.08f}));
+      const auto pb=MotionReplay::camera(MotionReplay::Launcher::axes(qb,flip).at({2.1f,.3f,.08f}));
+      assert((pa-pb).length()<1e-5f);
     }
   }
 }
@@ -168,9 +261,10 @@ static void testFrameReset() {
 }
 
 int main() {
-  testMapping();
+  testMapping();testRotatedMappings();
   const auto direct=run(Pipeline::DirectTop),top=run(Pipeline::MappedTop),side=run(Pipeline::MappedSidecar);
   equalRun(direct,top);equalRun(direct,side);assert(direct.maximumTurnError<1.5f);
+  equalRun(direct,run(Pipeline::MappedTop90L));equalRun(direct,run(Pipeline::MappedTop90R));
   // These controls would fail if only acceleration were mapped, or if both
   // test paths merely shared a mock orientation transform.
   const auto unmapped=run(Pipeline::UnmappedSidecar),accelOnly=run(Pipeline::AccelOnlySidecar);
@@ -179,5 +273,5 @@ int main() {
   assert(unmappedStill.valid() && directStill.valid() && std::fabs(unmappedStill.degrees-directStill.degrees)>10);
   assert(Quaternion::difference(accelOnly.last.q,direct.last.q)>10);
   testFrameReset();
-  std::cout<<"PASS: Top identity; Sidecar proper physical rotation; alias-safe accel/gyro mapping; actual VQF, level, canonical capture/storage/replay equivalence; both Flip views; unmapped/gyro negative controls; clean frame reset and renewed warmup.\n";
+  std::cout<<"PASS: Top identity; Sidecar and Top 90 L/R proper physical rotations, every remapVector pair; alias-safe accel/gyro mapping; actual VQF, level, canonical capture/storage/replay equivalence; both Flip views; unmapped/gyro negative controls; clean frame reset and renewed warmup.\n";
 }

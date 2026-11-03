@@ -15,8 +15,38 @@ inline const char *unavailableTilt(LaunchMotion::Quality quality) {
     default:return "No tilt data";
   }
 }
+// The launcher at one pose over the stationary floor: the recap's and Live tilt's.
+inline void launcherScene(lgfx::LGFXBase &g,const LaunchMotion::Quaternion &pose,int top,int height,
+                          const Palette::Colors &c,bool flipEnabled,MountOrientation::Mode mount,float ripcord=0) {
+  using namespace MotionReplay;
+  Cube cube;Vec lo{1e9f,1e9f,0},hi{-1e9f,-1e9f,0};
+  for(unsigned i=0;i<8;++i){const Vec p=camera(cube.corner(i));lo.x=std::min(lo.x,p.x);lo.y=std::min(lo.y,p.y);hi.x=std::max(hi.x,p.x);hi.y=std::max(hi.y,p.y);}
+  const float scale=std::min((g.width()-12)/(hi.x-lo.x),(height-4)/(hi.y-lo.y));
+  auto project=[&](Vec v){const Vec p=camera(v);return Vec{g.width()*.5f+(p.x-(lo.x+hi.x)*.5f)*scale,top+height*.5f+(p.y-(lo.y+hi.y)*.5f)*scale,0};};
+  auto line=[&](Vec a,Vec b,uint16_t color){a=project(a);b=project(b);g.drawLine(lroundf(a.x),lroundf(a.y),lroundf(b.x),lroundf(b.y),color);};
+  // The stationary floor, the gravity reference the launcher tilts against: its
+  // nearer half a little brighter.
+  for(unsigned i=0;i<Floor::SEGMENTS;++i) {
+    const Vec from=Floor::point(i),to=Floor::point(i+1);
+    line(from,to,Launcher::towardViewer({from.x+to.x,from.y+to.y,0})>0?c.scenePlane:c.sceneRear);
+  }
+  const auto axes=Launcher::axes(forDisplay(pose,flipEnabled),flipEnabled,mount);
+  // Flat shading in theme colors: a dark head, the launcher in the accent, a
+  // light stick and its near-black screen, unshaded so it always reads.
+  Launcher::paint(axes,mount,[&](Launcher::Part part,const Vec *world,const uint8_t *quad,Vec normal) {
+    const uint16_t base=part==Launcher::Head?Palette::mix(c.background,c.muted,2,3):part==Launcher::Stick?c.text:c.accent;
+    const uint16_t color=part==Launcher::Screen?c.sceneRear:Palette::mix(c.background,base,int(6+Launcher::light(normal)*10),16);
+    int x[4],y[4];
+    for(unsigned i=0;i<4;++i){const Vec p=project(world[quad[i]]);x[i]=lroundf(p.x);y[i]=lroundf(p.y);}
+    g.fillTriangle(x[0],y[0],x[1],y[1],x[2],y[2],color);
+    g.fillTriangle(x[0],y[0],x[2],y[2],x[3],y[3],color);
+  },ripcord);
+}
+
 inline void spatial(lgfx::LGFXBase &g,const LaunchMotion::Trace &trial,
-                    int top,int height,const Palette::Colors &c,float progress=1,bool flipEnabled=false) {
+                    int top,int height,const Palette::Colors &c,float progress=1,bool flipEnabled=false,
+                    MountOrientation::Mode mount=MountOrientation::Mode::Top,
+                    const AnalogTachometer::Curve *rpmCurve=nullptr) {
   using namespace MotionReplay;
   // Fixed camera/scale and fused orientation only. Cached geometry lives off
   // the UI task stack; no live IMU, acquisition, travel or height inference.
@@ -24,56 +54,31 @@ inline void spatial(lgfx::LGFXBase &g,const LaunchMotion::Trace &trial,
   auto signature=[](const LaunchMotion::Trace &t){
     return LaunchMotion::checksum(reinterpret_cast<const uint8_t *>(t.points),sizeof(t.points))^
       LaunchMotion::checksum(reinterpret_cast<const uint8_t *>(t.gravity),sizeof(t.gravity))^
-      t.durationMs^(t.count<<16)^(unsigned(t.quality)<<24)^(unsigned(t.fused)<<30);
+      t.durationMs^(t.count<<16)^(unsigned(t.quality)<<24)^(unsigned(t.fused)<<30)^(levelReference.generation*2654435761u)^
+      ((keptHeading.set?keptHeading.generation+1:0)*40503u);
   };
   const auto a=signature(trial);
-  if(a!=lastCurrent){current.build(trial);lastCurrent=a;}
+  if(a!=lastCurrent){current.build(trial,keptHeading.set?&keptHeading.q:nullptr);lastCurrent=a;}
   if(!current.valid)return;
-  Cube cube;Vec lo{1e9f,1e9f,0},hi{-1e9f,-1e9f,0};
-  for(unsigned i=0;i<8;++i){const Vec p=camera(cube.corner(i));lo.x=std::min(lo.x,p.x);lo.y=std::min(lo.y,p.y);hi.x=std::max(hi.x,p.x);hi.y=std::max(hi.y,p.y);}
-  const float scale=std::min((g.width()-12)/(hi.x-lo.x),(height-4)/(hi.y-lo.y));
-  auto project=[&](Vec v){const Vec p=camera(v);return Vec{g.width()*.5f+(p.x-(lo.x+hi.x)*.5f)*scale,top+height*.5f+(p.y-(lo.y+hi.y)*.5f)*scale,0};};
-  auto line=[&](Vec a,Vec b,uint16_t color){a=project(a);b=project(b);g.drawLine(lroundf(a.x),lroundf(a.y),lroundf(b.x),lroundf(b.y),color);};
-  static constexpr unsigned edges[12][2]={{0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}};
-  // Quiet rear edges, brighter near edges and a stationary mid-height plane
-  // give a gravity reference without obscuring the body.
-  for(const auto &e:edges)line(cube.corner(e[0]),cube.corner(e[1]),c.sceneRear);
-  for(const unsigned i:{0u,1u,5u,4u})line(cube.corner(i),cube.corner((i+1)%4+(i>=4?4:0)),c.faint);
-  line({-.84f,-.84f,0},{.84f,-.84f,0},c.scenePlane);
-  line({.84f,-.84f,0},{.84f,.84f,0},c.scenePlane);
   progress=std::max(0.0f,std::min(1.0f,progress));
   // Full recorded context at original speed. Start/End circles retain optical
   // onset/end tilt, independent of the pre/post context shown in the replay.
-  const auto pose=forDisplay(current.at(trial.points[0].ms+lroundf(progress*playbackDurationMs(trial))),flipEnabled);
-  auto body=[&](const LaunchMotion::Quaternion &q,unsigned vertex){
-    static constexpr unsigned bits[8]={0,1,3,2,4,5,7,6};const unsigned v=bits[vertex];
-    return rotate(q,{(v&1?1:-1)*.4f,(v&2?1:-1)*.65f,(v&4?1:-1)*.12f});
-  };
-  Vec corners[8];for(unsigned i=0;i<8;++i)corners[i]=project(body(pose,i));
-  auto face=[&](unsigned a,unsigned b,unsigned c,unsigned d,uint16_t color){
-    g.fillTriangle(lroundf(corners[a].x),lroundf(corners[a].y),lroundf(corners[b].x),lroundf(corners[b].y),lroundf(corners[c].x),lroundf(corners[c].y),color);
-    g.fillTriangle(lroundf(corners[a].x),lroundf(corners[a].y),lroundf(corners[c].x),lroundf(corners[c].y),lroundf(corners[d].x),lroundf(corners[d].y),color);
-  };
-  static constexpr unsigned faces[6][4]={{0,3,7,4},{1,2,6,5},{0,1,5,4},{3,2,6,7},{0,1,2,3},{4,5,6,7}};
-  static constexpr Vec normal[6]={{-1,0,0},{1,0,0},{0,-1,0},{0,1,0},{0,0,-1},{0,0,1}};
-  // Blue screen, violet back and dark sides provide front/back identity: the
-  // StickS3's own colors, the same in every theme.
-  static constexpr uint16_t colors[6]={0x1947,0x2169,0x298a,0x298a,0x50ea,0x0396};
-  for(unsigned f=0;f<6;++f){const auto n=rotate(pose,normal[f]);if(n.x-n.y+n.z>0)face(faces[f][0],faces[f][1],faces[f][2],faces[f][3],colors[f]);}
-  for(const auto &e:edges)line(body(pose,e[0]),body(pose,e[1]),0x5dff);
-  // Hardware features use physical board coordinates. At rotation 2 (Flip Off),
-  // USB is at logical +Y rather than the displayed bottom (-Y).
-  const float hardwareSign=DisplayOrientation::axisSign(flipEnabled);
-  auto hardware=[&](Vec v){return rotate(pose,{v.x*hardwareSign,v.y*hardwareSign,v.z});};
-  // Thick white USB cap remains identifiable even when the screen faces away.
-  const Vec usbA=project(hardware({-.4f,-.65f,0})),usbB=project(hardware({.4f,-.65f,0}));
-  for(int offset=-1;offset<=1;++offset)g.drawLine(lroundf(usbA.x),lroundf(usbA.y)+offset,lroundf(usbB.x),lroundf(usbB.y)+offset,Palette::WHITE);
-  // An inset rectangle identifies the screen; omit it when looking at the back.
-  const auto front=rotate(pose,{0,0,1});
-  if(front.x-front.y+front.z>0) {
-    const Vec screen[4]={{-.28f,-.38f,.125f},{.28f,-.38f,.125f},{.28f,.43f,.125f},{-.28f,.43f,.125f}};
-    for(unsigned i=0;i<4;++i)line(hardware(screen[i]),hardware(screen[(i+1)%4]),0x7e9f);
-  }
+  launcherScene(g,current.at(sourceTime(trial,progress)),top,height,c,flipEnabled,mount,
+    rpmCurve?ripcordAt(*rpmCurve,sourceTime(trial,progress)):0);
+}
+// The Live tilt page: the fused pose on the recap's model. `pose` is the last one,
+// and `live` says whether it is current: the fusion stops only in a flash write
+// or before it has settled, so the page says so rather than guess.
+inline void liveTilt(lgfx::LGFXBase &g,const LaunchMotion::Quaternion *pose,bool live,float degrees,
+                     const Palette::Colors &c,bool flipEnabled,MountOrientation::Mode mount) {
+  const int cx=g.width()/2;
+  if(pose)launcherScene(g,*pose,49,112,c,flipEnabled,mount);
+  char text[24];
+  if(!pose)snprintf(text,sizeof(text),"Waiting for tilt");
+  else if(live)snprintf(text,sizeof(text),"%.1f deg",degrees);
+  else snprintf(text,sizeof(text),"Last reading");
+  g.setTextColor(live?c.text:c.muted,c.background);
+  g.drawString(text,cx,170,2);
 }
 
 // RPM in thousands for the curve's scale: "4K" for a whole thousand,
@@ -138,7 +143,8 @@ inline const AnalogTachometer::Curve &demoCurve(float rpm=6500) {
 inline void feedback(lgfx::LGFXBase &g,const LaunchMotion::Trace &trial,
                      bool capturing,bool demo=false,float progress=1,bool flipEnabled=false,
                      const Palette::Colors &c=Palette::builtIn(0x07ff,true),const char *badge=nullptr,
-                     const AnalogTachometer::Curve &rpmCurve=AnalogTachometer::Curve()) {
+                     const AnalogTachometer::Curve &rpmCurve=AnalogTachometer::Curve(),
+                     MountOrientation::Mode mount=MountOrientation::Mode::Top) {
   const int cx=g.width()/2;char text[64];
   g.setTextDatum(top_center);
   // A celebrated pull's label: NEW BEST, or the milestone it reached.
@@ -146,7 +152,7 @@ inline void feedback(lgfx::LGFXBase &g,const LaunchMotion::Trace &trial,
   snprintf(text,sizeof(text),"%.0f RPM",trial.rpm);g.setTextColor(c.accent,c.background);
   g.drawString(text,cx,17,g.textWidth(text,&fonts::Font4)<=g.width()-6?4:2);
   if(trial.valid() && trial.fused && !capturing) {
-    spatial(g,trial,49,112,c,progress,flipEnabled);
+    spatial(g,trial,49,112,c,progress,flipEnabled,mount,&rpmCurve);
     // A full-scale reading or a bridged short gap is approximate: still show it, marked.
     g.setTextColor(trial.approximate()?c.warning:c.muted,c.background);
     g.drawString(trial.approximate()?"Tilt approx.":"Tilt replay",cx,164,1);

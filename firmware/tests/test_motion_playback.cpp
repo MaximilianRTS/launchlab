@@ -46,6 +46,7 @@ static uint32_t hostNow=0;
 static uint32_t millis(){return hostNow;}
 static LaunchFeedback launchFeedback;
 static LaunchMotion::Trace latestMotion,referenceMotion,demoMotion,demoReference;
+static MountOrientation::Mode liveMount=MountOrientation::Mode::Top;
 static AnalogTachometer::Curve latestCurve;
 struct PracticeFake {}practice;
 struct StoreFake {bool pending(const PracticeFake&)const{return false;}}practiceStore;
@@ -173,9 +174,37 @@ int main() {
     MotionUI::feedback(oracle,displayAxes,false,false,progress,true);
     MotionUI::feedback(native,dots,false,false,progress,true);
     MotionUI::feedback(inverted,dots,false,false,progress,false);
-    require(!inverted.triangles.empty() && inverted.triangles==oracle.triangles,"flipped 3D body must follow the display axes, including cached replay");
-    require((inverted.triangles!=native.triangles)==(progress>.4f),"asymmetric tilt must change direction after display flip while neutral stays aligned");
-    require(inverted.usbLines!=oracle.usbLines,"USB marker must stay on the physical USB end, not the logical screen bottom");
+    // The launcher is not symmetric, so its parts stay on their physical ends:
+    // not the display-axes oracle's, whose body frame is the screen's.
+    require(!inverted.triangles.empty() && inverted.triangles!=oracle.triangles,"the model's ends must stay physical, not swap with the logical screen axes");
+    require(inverted.triangles!=native.triangles,"Flip must turn the view about the vertical");
+    require(inverted.usbLines.empty() && native.usbLines.empty(),"the launcher model has no stick USB marker");
+    // Before the pull's tilt (neutral), a Top stick's screen rotates the view with
+    // it: the barrel is the accent's long reach, left with Flip Off, right with On.
+    // Only the launcher parts are in the accent, whose red channel is zero.
+    if(progress<.4f) {
+      auto accentReach=[](const lgfx::LGFXBase &g){
+        int low=999,high=-999;
+        for(size_t i=0;i+7<=g.triangles.size();i+=7)if(!(g.triangles[i+6]>>11) && (g.triangles[i+6]&31))
+          for(size_t j=0;j<6;j+=2){low=std::min(low,g.triangles[i+j]);high=std::max(high,g.triangles[i+j]);}
+        require(high>=low,"the launcher must be drawn in the accent color");return (high-67)-(67-low);};
+      require(accentReach(inverted)<0 && accentReach(native)>0,"Flip must turn the model about the vertical, the barrel with it");
+      // Live tilt is the recap's model: at the same pose, the same triangles.
+      const LaunchMotion::Quaternion level{.92387953f,0,0,.38268343f};
+      lgfx::LGFXBase live;MotionUI::liveTilt(live,&level,true,0,ui(),false,MountOrientation::Mode::Top);
+      // Packed recorded poses can round a pixel apart.
+      require(live.triangles.size()==inverted.triangles.size(),"Live tilt must draw the recap's model");
+      for(size_t i=0;i<live.triangles.size();++i)if(i%7!=6)require(std::abs(live.triangles[i]-inverted.triangles[i])<=1,"Live tilt must draw the recap's view");
+      lgfx::LGFXBase waiting;MotionUI::liveTilt(waiting,nullptr,false,0,ui(),false,MountOrientation::Mode::Top);
+      require(waiting.triangles.empty(),"no reading yet draws no model");
+      lgfx::LGFXBase last;MotionUI::liveTilt(last,&level,false,0,ui(),false,MountOrientation::Mode::Top);
+      require(last.triangles==live.triangles,"the last pose is held when the fusion stops");
+      // The drawing follows Mounting, through to the stick's triangles.
+      lgfx::LGFXBase sidecar,turned;
+      MotionUI::feedback(sidecar,dots,false,false,progress,false,ui(),nullptr,AnalogTachometer::Curve(),MountOrientation::Mode::Sidecar);
+      MotionUI::feedback(turned,dots,false,false,progress,false,ui(),nullptr,AnalogTachometer::Curve(),MountOrientation::Mode::Top90L);
+      require(sidecar.triangles!=inverted.triangles && turned.triangles!=inverted.triangles && sidecar.triangles!=turned.triangles,"the stick must follow Mounting");
+    }
     MotionUI::feedback(restored,dots,false,false,progress,true);
     require(restored.primitives==native.primitives,"returning to native orientation must restore the same cached frame");
   }

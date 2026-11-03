@@ -197,12 +197,14 @@ int main() {
     using MountOrientation::Mode;
     // Device gravity for a level launcher, then ripcord down and up.
     struct Pose {Mode mount;float level[3],down[3],up[3];};
-    for(const Pose pose:{Pose{Mode::Top,{0,0,1},{0,-1,0},{0,1,0}},Pose{Mode::Sidecar,{1,0,0},{0,-1,0},{0,1,0}}}) {
+    // A turned Top: ripcord down puts launcher -Y up, a stick edge per the turn.
+    for(const Pose pose:{Pose{Mode::Top,{0,0,1},{0,-1,0},{0,1,0}},Pose{Mode::Sidecar,{1,0,0},{0,-1,0},{0,1,0}},
+                         Pose{Mode::Top90L,{0,0,1},{-1,0,0},{1,0,0}},Pose{Mode::Top90R,{0,0,1},{1,0,0},{-1,0,0}}}) {
       Session m;
       const Tilt level=tiltFor(pose.mount,pose.level[0],pose.level[1],pose.level[2]);
       assert(level.valid && level.degrees<0.5f && m.evaluate(level)==Alignment::Ready);
       // The other mount's level pose is 90 degrees off for this one.
-      const Tilt other=pose.mount==Mode::Top?tiltFor(Mode::Top,1,0,0):tiltFor(Mode::Sidecar,0,0,1);
+      const Tilt other=pose.mount==Mode::Sidecar?tiltFor(Mode::Sidecar,0,0,1):tiltFor(pose.mount,1,0,0);
       assert(other.valid && near(other.degrees,90.0f,0.5f) && m.evaluate(other)==Alignment::HoldLevel);
       uint32_t n=0;
       assert(m.observePull(++n,true,3000.0f,other)==Outcome::RejectedLevel);
@@ -219,7 +221,7 @@ int main() {
     // off: the page shows its Mounting so the user can tell.
     assert(Session{}.evaluate(tiltFor(Mode::Top,1,0,0))==Alignment::HoldLevel);
     // remapVector: the same device sample as the other Mounting reads it.
-    for(const Mode from:{Mode::Top,Mode::Sidecar})for(const Mode to:{Mode::Top,Mode::Sidecar}) {
+    for(const Mode from:{Mode::Top,Mode::Sidecar,Mode::Top90L,Mode::Top90R})for(const Mode to:{Mode::Top,Mode::Sidecar,Mode::Top90L,Mode::Top90R}) {
       const float device[3]={0.3f,-0.5f,0.8f};float in[3],expect[3],got[3];
       MountOrientation::mapVector(from,device,in);MountOrientation::mapVector(to,device,expect);
       MountOrientation::remapVector(from,to,in,got);
@@ -230,10 +232,10 @@ int main() {
     auto otherFor=[](Mode mount,float x,float y,float z){
       const float device[3]={x,y,z};float launcher[3];MountOrientation::mapVector(mount,device,launcher);
       StickS3Level level;level.feed(launcher[0],launcher[1],launcher[2],1000);
-      const Mode other=mount==Mode::Top?Mode::Sidecar:Mode::Top;
+      const Mode other=MountOrientation::levelAlternative(mount);
       return Tilt(level.reading(1000,[&](const float *in,float *out){MountOrientation::remapVector(mount,other,in,out);}));};
-    for(const Mode mount:{Mode::Top,Mode::Sidecar}) {
-      const Mode other=mount==Mode::Top?Mode::Sidecar:Mode::Top;
+    for(const Mode mount:{Mode::Top,Mode::Sidecar,Mode::Top90L,Mode::Top90R}) {
+      const Mode other=MountOrientation::levelAlternative(mount);
       // The other install's level pose: level for it, not for this Mounting.
       const float pose[3]={other==Mode::Sidecar?1.0f:0.0f,0.0f,other==Mode::Sidecar?0.0f:1.0f};
       Session h;
@@ -253,8 +255,21 @@ int main() {
       for(uint32_t t=10000;t<=20000;t+=1000)h.observeMount(t,here,there);
       assert(!h.mountHint());
     }
+    // A turned Top held level never asks about Top: its level pose is Top's, so
+    // the hint cannot tell the turns apart, and it stays quiet rather than guess.
+    for(const Mode mount:{Mode::Top90L,Mode::Top90R}) {
+      Session h;const Tilt here=tiltFor(mount,0,0,1),there=otherFor(mount,0,0,1);
+      assert(here.valid && here.degrees<.5f && there.valid && near(there.degrees,90.0f,.5f));
+      for(uint32_t t=5000;t<=5000+2*MOUNT_HINT_MS;t+=500)h.observeMount(t,here,there);
+      assert(!h.mountHint());
+      // A real Sidecar install set to a turned Top: asks about Sidecar, truly.
+      Session side;const Tilt sideHere=tiltFor(mount,1,0,0),sideThere=otherFor(mount,1,0,0);
+      assert(near(sideHere.degrees,90.0f,.5f) && sideThere.degrees<.5f);
+      for(uint32_t t=5000;t<=5000+MOUNT_HINT_MS;t+=500)side.observeMount(t,sideHere,sideThere);
+      assert(side.mountHint());
+    }
   }
 
   std::cout<<"PASS: 3-stage guided wear check protocol, 12-deg tolerance, recoil rescue, 180-deg vertical flip enforcement, "
-             "pull out / hold / let go steps (only the retraction judged), Top and Sidecar mounts and aggregate RPM statistics\n";
+             "pull out / hold / let go steps (only the retraction judged), Top, Sidecar and turned Top mounts and aggregate RPM statistics\n";
 }

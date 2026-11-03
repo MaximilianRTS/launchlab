@@ -8,11 +8,11 @@ import tempfile
 
 root=Path(__file__).resolve().parents[1]
 source=(root/'LaunchLabMini/LaunchLabMini.ino').read_text()
-def function(name):
-    start=source.index('static void '+name+'(')
+def function(name,result='void'):
+    start=source.index('static '+result+' '+name+'(')
     # Some handlers have a forward declaration before their definition.
     while source.index(';',start)<source.index('{',start):
-        start=source.index('static void '+name+'(',start+1)
+        start=source.index('static '+result+' '+name+'(',start+1)
     cursor=source.index('{',start)+1
     depth=1
     while depth:
@@ -29,6 +29,8 @@ prefix=r'''
 #include "brightness.h"
 #include "device_wipe.h"
 #include "display_flip_setting.h"
+#include "bluetooth_setting.h"
+#include "ble_link_fake.h"
 #include "shake_wake_setting.h"
 #include "display_orientation.h"
 #include "sensor_profile_setting.h"
@@ -64,7 +66,7 @@ static struct {void cancel(){}}restoreRx;
 static void beginWipe();static void cancelWipe();
 // The start-mark reference (its saves are checked by check_save_paths).
 static StartMarkReference::Reference startMarks;static bool startMarksDirty=false;static void loadStartMarks(){}static void saveStartMarks(){}
-static bool tournamentMode=false,historyPage=false,dirty=false,diagnostics=false,demo=false,motionDemo=false,motionPending=false,settingsSaveError=false,restorePreview=false,displayFlipped=false,shakeToWake=ShakeWakeSetting::DEFAULT_ON;
+static bool tournamentMode=false,historyPage=false,dirty=false,diagnostics=false,demo=false,motionDemo=false,motionPending=false,settingsSaveError=false,restorePreview=false,displayFlipped=false,shakeToWake=ShakeWakeSetting::DEFAULT_ON,bluetoothOn=BluetoothSetting::DEFAULT_ON;static bool bluetoothAtBoot=false;
 static uint8_t brightnessPercent=Brightness::DEFAULT_PERCENT;
 static uint32_t historyOffset=0,newSessionAt=0,tournamentHintUntil=0;
 enum class TournamentView:uint8_t{RecordingOnly,Rpm};
@@ -151,7 +153,7 @@ visible_start=source.index('static bool visibleDisplayFlipped()')
 prefix+='\n'+source[visible_start:source.index('}',visible_start)+1]+'\n'
 tests=r'''
 static void reset(){
-  controls={};appearance={};appearanceStore={};bestEffect={};tournamentMode=historyPage=dirty=diagnostics=demo=motionDemo=motionPending=settingsSaveError=restorePreview=displayFlipped=false;shakeToWake=ShakeWakeSetting::DEFAULT_ON;
+  controls={};appearance={};appearanceStore={};bestEffect={};tournamentMode=historyPage=dirty=diagnostics=demo=motionDemo=motionPending=settingsSaveError=restorePreview=displayFlipped=false;shakeToWake=ShakeWakeSetting::DEFAULT_ON;bluetoothOn=BluetoothSetting::DEFAULT_ON;
   gestureA={};gestureB={};wipeConfirmation={};wipeFailed=wipeBlocked=false;
   historyOffset=newSessionAt=tournamentHintUntil=0;historyView=PracticeUI::View::Recent;tournamentView=TournamentView::RecordingOnly;
   practice={};demoPractice={};latestMotion={};launchFeedback={};inactivity={};brightnessPercent=BRIGHT;rpmEstimator=RpmEstimator::DEFAULT_MODE;sensorProfile=StickS3SensorProfile::DEFAULT_MODE;
@@ -231,6 +233,13 @@ static void bootDefaults() {
    assert(!shakeToWake && Preferences::data==before && !prefs.writes && Serial.last.empty());}
   freshStore();assert(prefs.putUChar(ShakeWakeSetting::KEY,9)==1);{const auto before=Preferences::data;shakeToWake=false;boot();
    assert(shakeToWake && Preferences::data==before && !prefs.writes && Serial.last=="SHAKE_WAKE_SETTING_NOTICE invalid_saved_value_retained_using_on");}
+  // Bluetooth: Off with no saved choice; a saved On is kept; an invalid record
+  // reads as Off, is kept, and says so.
+  freshStore();bluetoothOn=true;boot();assert(!bluetoothOn && Preferences::data.empty() && !prefs.writes);
+  freshStore();assert(prefs.putUChar(BluetoothSetting::KEY,1)==1);{const auto before=Preferences::data;bluetoothOn=false;boot();
+   assert(bluetoothOn && Preferences::data==before && !prefs.writes && Serial.last.empty());}
+  freshStore();assert(prefs.putUChar(BluetoothSetting::KEY,9)==1);{const auto before=Preferences::data;bluetoothOn=true;boot();
+   assert(!bluetoothOn && Preferences::data==before && !prefs.writes && Serial.last=="BLUETOOTH_SETTING_NOTICE invalid_saved_value_retained_using_off_default");}
   // Invalid records: the defaults are used, the bytes are kept and each
   // notice names the default it fell back to.
   for(uint8_t percent:{0,5,45,110,255}) {
@@ -291,7 +300,7 @@ static void edit(unsigned row){controls.page=Page::Settings;controls.setting=row
 int main(){
   bootDefaults();bootCelebrateDefault();
   reset();restoreMountAtBoot();assert(mountMode==MountOrientation::Mode::Top && !prefs.writes);
-  for(auto selected:{MountOrientation::Mode::Sidecar,MountOrientation::Mode::Top}) {
+  for(auto selected:{MountOrientation::Mode::Sidecar,MountOrientation::Mode::Top90L,MountOrientation::Mode::Top90R,MountOrientation::Mode::Top}) {
     directWrites=true;assert(MountOrientationSetting::save(prefs,selected));directWrites=false;const auto stored=Preferences::data;
     mountMode=MountOrientation::Mode(99);restoreMountAtBoot();
     assert(mountMode==selected && imuAcquisition.mode==selected && Preferences::data==stored);
@@ -454,7 +463,7 @@ int main(){
   const auto mountBytes=Preferences::data;const auto mountChanges=imuAcquisition.changes;
   edit(unsigned(Controls::Setting::Mount));buttonA();assert(Preferences::data==mountBytes && imuAcquisition.changes==mountChanges);
   // A busy IMU owner keeps the old frame and record until it can switch.
-  edit(unsigned(Controls::Setting::Mount));buttonB();imuAcquisition.fail=true;buttonA();
+  edit(unsigned(Controls::Setting::Mount));buttonB();assert(controls.draft==2);buttonB();assert(controls.draft==3);buttonB();assert(controls.draft==0);imuAcquisition.fail=true;buttonA();
   assert(controls.page==Page::Settings && mountMode==MountOrientation::Mode::Top && liveMount==MountOrientation::Mode::Sidecar && settingsSave.failed());
   assert(MountOrientationSetting::load(prefs,mountSaved) && mountSaved==MountOrientation::Mode::Sidecar);
   imuAcquisition.fail=false;Preferences::failWrite=true;retry(SettingsSave::FAILED_RETRY_MS);
@@ -516,7 +525,7 @@ prefix+=definition('static uint8_t settingValue(unsigned row)')+'\n'
 names=['syncNavigation','toggleFeedback','previewSetting','beginWipe','cancelWipe','cancelSettingEdit','writeSettings','saveSettings','commitSetting','newSession','browseOlder','navigate','buttonA','buttonB','holdA','holdB']
 with tempfile.TemporaryDirectory(prefix='launchlab-controls-') as directory:
     directory=Path(directory);cpp=directory/'test.cpp';exe=directory/'test'
-    cpp.write_text(prefix+'\n'.join(function(name) for name in names)+tests)
+    cpp.write_text(prefix+function('applySetting','bool')+'\n'+'\n'.join(function(name) for name in names)+tests)
     subprocess.run([os.environ.get('CXX','c++'),'-std=c++17','-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer',
                     '-I'+str(root/'tests/fakes'),'-I'+str(root/'LaunchLabMini'),'-I'+str(root/'LaunchLabRpm'),str(cpp),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)
