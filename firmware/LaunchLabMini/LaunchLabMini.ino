@@ -43,6 +43,7 @@ namespace Hil{inline bool nvsWrite(const char *key,size_t bytes);}
 #include "mount_orientation_setting.h"
 #include "live_tilt.h"
 #include "dark_display.h"
+#include "ble_diagnostics.h"
 #include "controls_ui.h"
 #include "motion_acquisition.h"
 #include "i2c_bus_recovery.h"
@@ -2979,6 +2980,7 @@ LOOP_HELPER static bool answerPairing(bool buttonsFresh,const Snapshot &s) {
   if(answered){gestureA.consumed=gestureB.consumed=true;dirty=true;}
   return true;
 }
+static uint8_t phoneState(const Snapshot &s){return s.signalFault?3:s.phase==AnalogTachometer::Phase::Launch?1:s.resting?2:0;}
 LOOP_HELPER static int32_t run(uint8_t op,const uint8_t *args,size_t length,uint8_t *out,size_t capacity) {
   const uint32_t now=millis();uint8_t *p=out;
   const size_t room=capacity;
@@ -3002,7 +3004,7 @@ LOOP_HELPER static int32_t run(uint8_t op,const uint8_t *args,size_t length,uint
       const auto s=acquisition.snapshot();const auto tilt=level.reading(now);
       *p++=uint8_t(int8_t(battery.valid(now)?battery.percent:-1));p=put16(p,battery.millivolts);
       *p++=battery.chargeName()[0]=='u'?2:battery.chargeName()[0]=='c'?1:0;
-      *p++=s.signalFault?3:s.phase==AnalogTachometer::Phase::Launch?1:s.resting?2:0;
+      *p++=phoneState(s);
       p=putF(p,tilt.valid()?tilt.degrees:NAN);
       p=put32(p,BleLink::connected()?0:uint32_t((inactivity.remaining(now)+999)/1000));
       break;
@@ -3047,6 +3049,16 @@ LOOP_HELPER static int32_t run(uint8_t op,const uint8_t *args,size_t length,uint
         *p++=r.event;*p++=r.flags;*p++=r.brightness;
       }
       break;
+    case 16: {
+      if(tournamentMode)return -HIDDEN;
+      const auto s=acquisition.snapshot();BleDiagnostics::Values v;
+      v.state=phoneState(s);v.minMark=StickS3SensorProfile::minMark(s.sensorProfile);
+      v.lastMark=s.startMark;v.medianMark=startMarks.median();v.noise=s.noise;v.samplesPerSecond=s.rate;
+      v.signalMin=s.minimum;v.signalMax=s.maximum;
+      v.weak=s.weak;v.slow=s.slow;v.shape=s.shape;v.inconsistent=s.inconsistent;
+      v.dataLoss=s.overflows+s.readErrors+s.invalidFrames+s.lostEvents+s.stalls;v.maxReadGapUs=s.maxReadGapUs;
+      return int32_t(BleDiagnostics::encode(v,out));
+    }
     case 15:
       if(length!=1 || args[0]>1){*p++=INVALID;break;}
       darkDisplay.set(!args[0] && BleLink::secured());dirty=true;*p++=OK;

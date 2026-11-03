@@ -98,6 +98,20 @@ To draw it, remove the pose's yaw offset with one heading turn about Z, so the b
 
 0 turns the stick's backlight and drawing off for this connection, for a phone that shows the readings itself. The measurement is unchanged. A button press lights the screen for 10 s and does nothing else, the numeric comparison always shows, and the screen returns when the link ends. It is not saved, so send it again after each connection. An older device answers unknown command.
 
+## Sensor diagnostics
+
+| op | Name | Arguments | Reply payload |
+| --- | --- | --- | --- |
+| 16 | Get diagnostics | none | see below |
+
+**Diagnostics:** 39 bytes, read only: `state u8 (as Get status), minMark u16, lastMark u16, medianMark u16, noise u16, signalMin u16, signalMax u16, samplesPerSecond u16, weak u32, slow u32, shape u32, inconsistent u32, dataLoss u32, maxReadGapUs u32`.
+
+Marks and signal values are ADC counts. `minMark` is the current Sensor profile's minimum, below which a mark does not count. `lastMark` is the weakest of the three start marks of the latest confirmed pull since boot, `medianMark` the median over the last few pulls, which the stick keeps across restarts until the Sensor profile changes; each is 0 with none yet. `noise` is the detector's noise band and `signalMin`, `signalMax` the recent range. A shaft resting where little light returns reads 4095, which is not a fault. `samplesPerSecond` is 0 at rest, when optical sampling pauses (`state` 2).
+
+The counters run since boot. `weak`, `slow`, `shape` and `inconsistent` are movement the detector looked at and did not take for a pull; they rise in normal use, so read a change rather than the size. `dataLoss` adds up ADC overflows, read errors, invalid frames, lost events and stalls. `maxReadGapUs` is the longest gap between ADC reads.
+
+Status 3 in tournament mode. An older device answers unknown command. Ask no more than about once a second, and only while it is on screen.
+
 ## Launcher model
 
 The device draws this simple shape, in launcher axes, as flat-shaded boxes; the app may draw more detail within about the same extents. Subtract the centre (0.6, -0.1, 0), then multiply by 0.62, so the turn stays on screen.
