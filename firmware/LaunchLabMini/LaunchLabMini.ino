@@ -43,7 +43,10 @@ namespace Hil{inline bool nvsWrite(const char *key,size_t bytes);}
 #include "mount_orientation_setting.h"
 #include "live_tilt.h"
 #include "dark_display.h"
+#include <cstdarg>
 #include "ble_diagnostics.h"
+#include "ble_upload.h"
+#include "ble_wear.h"
 #include "controls_ui.h"
 #include "motion_acquisition.h"
 #include "i2c_bus_recovery.h"
@@ -1968,6 +1971,21 @@ LOOP_HELPER static void pollRestore(const Snapshot &s) {
 // `L` lists the slots; `T` takes one framed, checksummed request (put, delete,
 // select or clear) as a base64 line and a "." line, like a restore. Replies
 // are drained at once: a short reply can otherwise wait in the USB ring.
+// A request reaches the same code over USB or from a phone (BleUpload), and the
+// result line goes back the way it came.
+static BleUpload::Buffer upload;
+static bool uploadTaking=false;
+static char requestResult[BleUpload::RESULT_CHARS]={};
+static bool takeUpload(uint8_t *out,size_t capacity,size_t &n) {
+  if(upload.length()>capacity)return false;
+  memcpy(out,upload.data(),upload.length());n=upload.length();return true;
+}
+static void reportf(const char *format,...) {
+  char line[BleUpload::RESULT_CHARS];va_list args;va_start(args,format);vsnprintf(line,sizeof(line),format,args);va_end(args);
+  Serial.print(line);
+  if(uploadTaking)memcpy(requestResult,line,sizeof(line));
+}
+static void reportln(const char *line){reportf("%s\n",line);}
 static void themeReply(){UsbTx::drain(100);}
 LOOP_HELPER static void listThemes() {
   unsigned available=0;const bool known=nvsAvailable(available);
@@ -1997,9 +2015,9 @@ static void themesChanged() {
 }
 LOOP_HELPER static void selectTheme(Appearance::Theme theme,const Snapshot &s) {
   auto next=appearance;
-  if(!themeLibrary.available(theme)){Serial.printf("THEME_ERROR op=select reason=unavailable theme=%u written=0\n",unsigned(theme));themeReply();return;}
+  if(!themeLibrary.available(theme)){reportf("THEME_ERROR op=select reason=unavailable theme=%u written=0\n",unsigned(theme));themeReply();return;}
   if(!appearanceStore.ready() || !next.select(theme,appearance.effect,appearance.sound)) {
-    Serial.println("THEME_ERROR op=select reason=appearance_unavailable written=0");themeReply();return;
+    reportln("THEME_ERROR op=select reason=appearance_unavailable written=0");themeReply();return;
   }
   if(next.generation()!=appearance.generation()){appearance=next;settingsSave.mark(SettingsSave::Appearance);}
   if(controls.page==Controls::Page::Edit && controls.setting==unsigned(Controls::Setting::Theme))cancelSettingEdit();
@@ -2007,20 +2025,20 @@ LOOP_HELPER static void selectTheme(Appearance::Theme theme,const Snapshot &s) {
   // Saved with the other settings: at once when the owner is idle, otherwise
   // at its next checkpoint.
   saveSettings(millis(),s,true);
-  Serial.printf("THEME_OK op=select theme=%u pending=%d\n",unsigned(theme),bool(settingsSave.pending()&SettingsSave::Appearance));themeReply();
+  reportf("THEME_OK op=select theme=%u pending=%d\n",unsigned(theme),bool(settingsSave.pending()&SettingsSave::Appearance));themeReply();
 }
 LOOP_HELPER static void finishThemeRequest(const Snapshot &s) {
   uint8_t bytes[Themes::Request::BYTES];size_t n=0;
   auto request=std::unique_ptr<Themes::Request>(new(std::nothrow) Themes::Request);
   auto next=std::unique_ptr<Themes::Library>(new(std::nothrow) Themes::Library);
-  if(!request || !next){Serial.println("THEME_ERROR reason=out_of_memory written=0");themeReply();return;}
-  if(!themeRx.take(bytes,sizeof(bytes),n) || !request->decode(bytes,n)) {
-    Serial.println("THEME_ERROR reason=invalid_request written=0");themeReply();return;
+  if(!request || !next){reportln("THEME_ERROR reason=out_of_memory written=0");themeReply();return;}
+  if(!(uploadTaking?takeUpload(bytes,sizeof(bytes),n):themeRx.take(bytes,sizeof(bytes),n)) || !request->decode(bytes,n)) {
+    reportln("THEME_ERROR reason=invalid_request written=0");themeReply();return;
   }
   using Op=Themes::Request::Op;
   const char *op=Themes::Request::name(request->op);const unsigned slot=request->argument;
   if(request->op==Op::Select){selectTheme(Appearance::Theme(request->argument),s);return;}
-  auto fail=[&](const char *reason){Serial.printf("THEME_ERROR op=%s slot=%u reason=%s written=0\n",op,slot,reason);themeReply();};
+  auto fail=[&](const char *reason){reportf("THEME_ERROR op=%s slot=%u reason=%s written=0\n",op,slot,reason);themeReply();};
   if(request->op!=Op::Clear && slot>=Themes::SLOTS)return fail("bad_slot");
   if(request->op==Op::Put && !request->theme.valid())return fail(Palette::problemName(request->theme.check()));
   // Colors are never refused; a put reports what the editor warns about.
@@ -2034,19 +2052,19 @@ LOOP_HELPER static void finishThemeRequest(const Snapshot &s) {
   else if(request->op==Op::Delete)next->remove(slot);
   else *next=Themes::Library{};
   if(request->op!=Op::Clear && *next==themeLibrary) {
-    Serial.printf("THEME_OK op=%s slot=%u revision=%lu unchanged=1 warnings=%s\n",op,slot,(unsigned long)themeLibrary.revision,warnings);themeReply();return;
+    reportf("THEME_OK op=%s slot=%u revision=%lu unchanged=1 warnings=%s\n",op,slot,(unsigned long)themeLibrary.revision,warnings);themeReply();return;
   }
   unsigned available=0;
   if(request->op==Op::Put && (!nvsAvailable(available) || available<themeStore.neededEntries())) {
-    Serial.printf("THEME_ERROR op=put slot=%u reason=nvs_space available_entries=%u needed_entries=%u written=0\n",slot,available,themeStore.neededEntries());
+    reportf("THEME_ERROR op=put slot=%u reason=nvs_space available_entries=%u needed_entries=%u written=0\n",slot,available,themeStore.neededEntries());
     themeReply();return;
   }
   if(motionPending || s.phase==AnalogTachometer::Phase::Launch || !acquisition.request(Action::IdleCheckpointBegin,s.launches))return fail("busy");
   const bool ok=request->op==Op::Clear?themeStore.clear():themeStore.save(*next);
-  if(!acquisition.request(Action::CheckpointEnd))Serial.println("THEME_NOTICE adc_checkpoint_resume_failed");
-  if(!ok){Serial.printf("THEME_ERROR op=%s slot=%u reason=write_failed written=unknown\n",op,slot);themeReply();dirty=true;return;}
+  if(!acquisition.request(Action::CheckpointEnd))reportln("THEME_NOTICE adc_checkpoint_resume_failed");
+  if(!ok){reportf("THEME_ERROR op=%s slot=%u reason=write_failed written=unknown\n",op,slot);themeReply();dirty=true;return;}
   themeLibrary=*next;themesChanged();
-  Serial.printf("THEME_OK op=%s slot=%u revision=%lu state=%s warnings=%s\n",op,slot,(unsigned long)themeLibrary.revision,
+  reportf("THEME_OK op=%s slot=%u revision=%lu state=%s warnings=%s\n",op,slot,(unsigned long)themeLibrary.revision,
     request->op==Op::Clear?"empty":Themes::stateName(themeLibrary.state(slot)),warnings);themeReply();
   // A selection that fell back is saved like any other setting.
   saveSettings(millis(),acquisition.snapshot(),true);dirty=true;
@@ -2096,39 +2114,39 @@ LOOP_HELPER static void listMilestones() {
 LOOP_HELPER static void finishMilestoneRequest(const Snapshot &s) {
   uint8_t bytes[Milestones::Request::BYTES];size_t n=0;
   Milestones::Request request;Milestones::Problem problem=Milestones::Problem::None;unsigned row=0;
-  if(!milestoneRx.take(bytes,sizeof(bytes),n) || !request.decode(bytes,n,problem,row)) {
-    Serial.println("MILESTONE_ERROR reason=invalid_request written=0");milestoneReply();return;
+  if(!(uploadTaking?takeUpload(bytes,sizeof(bytes),n):milestoneRx.take(bytes,sizeof(bytes),n)) || !request.decode(bytes,n,problem,row)) {
+    reportln("MILESTONE_ERROR reason=invalid_request written=0");milestoneReply();return;
   }
   const char *op=Milestones::Request::name(request.op);
   if(problem!=Milestones::Problem::None) {
-    Serial.printf("MILESTONE_ERROR op=%s reason=invalid_table problem=%s row=%u written=0\n",op,Milestones::problemName(problem),row);
+    reportf("MILESTONE_ERROR op=%s reason=invalid_table problem=%s row=%u written=0\n",op,Milestones::problemName(problem),row);
     milestoneReply();return;
   }
-  auto fail=[&](const char *reason){Serial.printf("MILESTONE_ERROR op=%s reason=%s written=0\n",op,reason);milestoneReply();};
+  auto fail=[&](const char *reason){reportf("MILESTONE_ERROR op=%s reason=%s written=0\n",op,reason);milestoneReply();};
   if(!milestoneStore.ready())return fail("storage_unavailable");
   auto next=milestones;
   if(request.op==Milestones::Request::Op::Reset)next.reset();
   else next.set(request.mode,request.rows,request.count);
   // A damaged record is replaced even by the table it already shows.
   if(next.generation()==milestones.generation() && !milestoneStore.damaged()) {
-    Serial.printf("MILESTONE_OK op=%s revision=%lu unchanged=1\n",op,(unsigned long)milestones.revision);milestoneReply();return;
+    reportf("MILESTONE_OK op=%s revision=%lu unchanged=1\n",op,(unsigned long)milestones.revision);milestoneReply();return;
   }
   if(next.generation()==milestones.generation())++next.revision;
   unsigned available=0;
   const unsigned needed=milestoneStore.neededEntries(next);
   if(!nvsAvailable(available) || available<needed) {
-    Serial.printf("MILESTONE_ERROR op=%s reason=nvs_space available_entries=%u needed_entries=%u written=0\n",op,available,needed);
+    reportf("MILESTONE_ERROR op=%s reason=nvs_space available_entries=%u needed_entries=%u written=0\n",op,available,needed);
     milestoneReply();return;
   }
   if(motionPending || s.phase==AnalogTachometer::Phase::Launch || !acquisition.request(Action::IdleCheckpointBegin,s.launches))return fail("busy");
   const bool ok=milestoneStore.save(next);
-  if(!acquisition.request(Action::CheckpointEnd))Serial.println("MILESTONE_NOTICE adc_checkpoint_resume_failed");
-  if(!ok){Serial.printf("MILESTONE_ERROR op=%s reason=write_failed written=unknown\n",op);milestoneReply();dirty=true;return;}
+  if(!acquisition.request(Action::CheckpointEnd))reportln("MILESTONE_NOTICE adc_checkpoint_resume_failed");
+  if(!ok){reportf("MILESTONE_ERROR op=%s reason=write_failed written=unknown\n",op);milestoneReply();dirty=true;return;}
   milestones=next;
   // A Celebrate editor open on the device shows a draft of the old mode.
   if(controls.page==Controls::Page::Edit && controls.setting==unsigned(Controls::Setting::Celebrate))cancelSettingEdit();
   syncNavigation();
-  Serial.printf("MILESTONE_OK op=%s revision=%lu mode=%s rows=%u\n",op,(unsigned long)milestones.revision,
+  reportf("MILESTONE_OK op=%s revision=%lu mode=%s rows=%u\n",op,(unsigned long)milestones.revision,
     Milestones::name(milestones.mode()),milestones.count());milestoneReply();
 }
 // ---- USB loaded effects -----------------------------------------------------
@@ -2286,37 +2304,37 @@ static void effectSetChanged() {
 // it to finishMilestoneRequest.
 LOOP_HELPER static bool finishEffectSetRequest(const Snapshot &s) {
   uint8_t bytes[EffectSet::Request::BYTES];size_t n=0;
-  if(!milestoneRx.take(bytes,sizeof(bytes),n) || !EffectSet::Request::claims(bytes,n))return false;
+  if(!(uploadTaking?takeUpload(bytes,sizeof(bytes),n):milestoneRx.take(bytes,sizeof(bytes),n)) || !EffectSet::Request::claims(bytes,n))return false;
   EffectSet::Mask mask;EffectSet::Problem problem=EffectSet::Problem::None;unsigned effect=0;
   if(!EffectSet::Request::decode(bytes,n,mask,problem,effect)) {
-    Serial.println("MILESTONE_ERROR reason=invalid_request written=0");milestoneReply();return true;
+    reportln("MILESTONE_ERROR reason=invalid_request written=0");milestoneReply();return true;
   }
   const char *op=EffectSet::Request::NAME;
   if(problem!=EffectSet::Problem::None) {
-    Serial.printf("MILESTONE_ERROR op=%s reason=invalid_effects problem=%s effect=%u written=0\n",op,EffectSet::problemName(problem),effect);
+    reportf("MILESTONE_ERROR op=%s reason=invalid_effects problem=%s effect=%u written=0\n",op,EffectSet::problemName(problem),effect);
     milestoneReply();return true;
   }
-  auto fail=[&](const char *reason){Serial.printf("MILESTONE_ERROR op=%s reason=%s written=0\n",op,reason);milestoneReply();return true;};
+  auto fail=[&](const char *reason){reportf("MILESTONE_ERROR op=%s reason=%s written=0\n",op,reason);milestoneReply();return true;};
   if(!effectSetStore.ready())return fail("storage_unavailable");
   auto next=effectSet;next.set(mask);
   // A damaged record is replaced even by the set it already shows.
   if(next.generation()==effectSet.generation() && !effectSetStore.damaged()) {
-    Serial.printf("MILESTONE_OK op=%s revision=%lu unchanged=1\n",op,(unsigned long)effectSet.revision);milestoneReply();return true;
+    reportf("MILESTONE_OK op=%s revision=%lu unchanged=1\n",op,(unsigned long)effectSet.revision);milestoneReply();return true;
   }
   if(next.generation()==effectSet.generation())++next.revision;
   unsigned available=0;
   const unsigned needed=effectSetNeededEntries();
   if(!nvsAvailable(available) || available<needed) {
-    Serial.printf("MILESTONE_ERROR op=%s reason=nvs_space available_entries=%u needed_entries=%u written=0\n",op,available,needed);
+    reportf("MILESTONE_ERROR op=%s reason=nvs_space available_entries=%u needed_entries=%u written=0\n",op,available,needed);
     milestoneReply();return true;
   }
   if(motionPending || s.phase==AnalogTachometer::Phase::Launch || !acquisition.request(Action::IdleCheckpointBegin,s.launches))return fail("busy");
   const bool ok=effectSetStore.saveViewed(next);
-  if(!acquisition.request(Action::CheckpointEnd))Serial.println("MILESTONE_NOTICE adc_checkpoint_resume_failed");
-  if(!ok){Serial.printf("MILESTONE_ERROR op=%s reason=write_failed written=unknown\n",op);milestoneReply();dirty=true;return true;}
+  if(!acquisition.request(Action::CheckpointEnd))reportln("MILESTONE_NOTICE adc_checkpoint_resume_failed");
+  if(!ok){reportf("MILESTONE_ERROR op=%s reason=write_failed written=unknown\n",op);milestoneReply();dirty=true;return true;}
   effectSet=next;effectSetChanged();
   char hex[33];effectSet.mask().hex(hex);
-  Serial.printf("MILESTONE_OK op=%s revision=%lu effect_set=%s effects=%u\n",op,(unsigned long)effectSet.revision,hex,effectSet.count());milestoneReply();
+  reportf("MILESTONE_OK op=%s revision=%lu effect_set=%s effects=%u\n",op,(unsigned long)effectSet.revision,hex,effectSet.count());milestoneReply();
   return true;
 }
 
@@ -2884,7 +2902,8 @@ constexpr unsigned LAST_WRITABLE=unsigned(Controls::Setting::ShakeWake);
 static uint8_t *put32(uint8_t *p,uint32_t v){memcpy(p,&v,4);return p+4;}
 static uint8_t *put16(uint8_t *p,uint16_t v){memcpy(p,&v,2);return p+2;}
 static uint8_t *putF(uint8_t *p,float v){memcpy(p,&v,4);return p+4;}
-static bool editing(){return controls.page==Controls::Page::Edit || controls.page==Controls::Page::Wipe || wipeBlocked;}
+// The string wear check counts too: a setting changed under it would spoil its stages.
+static bool editing(){return controls.page==Controls::Page::Edit || controls.page==Controls::Page::Wipe || controls.page==Controls::Page::WearCheck || wipeBlocked;}
 static bool validValue(unsigned id,uint8_t v) {
   using S=Controls::Setting;
   switch(S(id)) {
@@ -3049,6 +3068,91 @@ LOOP_HELPER static int32_t run(uint8_t op,const uint8_t *args,size_t length,uint
         *p++=r.event;*p++=r.flags;*p++=r.brightness;
       }
       break;
+    case 17:
+      if(tournamentMode)return -HIDDEN;
+      for(unsigned i=0;i<4;++i)p=putF(p,personalBests.rpm[i]);
+      break;
+    case 18:
+      if(tournamentMode)return -HIDDEN;
+      *p++=uint8_t(milestones.mode());*p++=uint8_t(milestones.count());
+      for(unsigned i=0;i<milestones.count();++i) {
+        const auto &r=milestones.row(i);p=put16(p,r.rpm);EffectSet::putMask(p,r.pool);p+=16;
+      }
+      break;
+    case 19: {
+      EffectSet::putMask(p,effectSet.mask());size_t at=16;
+      for(unsigned v=0;v<EffectSet::Mask::BITS;++v)if(Appearance::celebrates(v))at=putOption(out,at,capacity,unsigned(Controls::Setting::BestEffect),uint8_t(v));
+      return int32_t(at);
+    }
+    case 20: {
+      if(length!=1 || (args[0]!=255 && !Appearance::celebrates(args[0]))){*p++=INVALID;break;}
+      if(tournamentMode || editing() || motionPending){*p++=BUSY;break;}
+      if(!latestMotion.number){*p++=INVALID;break;}
+      previewBestEffect(args[0]==255?celebrationEffect():Appearance::Effect(args[0]));*p++=OK;
+      break;
+    }
+    case 21: {
+      // Starting only: leaving takes the stick, so a phone cannot lift what it hides.
+      if(length!=1 || args[0]!=1){*p++=INVALID;break;}
+      if(tournamentMode){*p++=OK;break;}
+      if(editing() || motionPending || acquisition.snapshot().phase==AnalogTachometer::Phase::Launch){*p++=BUSY;break;}
+      const auto previous=controls.page;controls.page=Controls::Page::Tournament;
+      navigate(Controls::Effect::Tournament,previous);*p++=OK;
+      break;
+    }
+    case 22: {
+      if(length!=1 || args[0]>1){*p++=INVALID;break;}
+      if(tournamentMode || controls.page==Controls::Page::Edit || controls.page==Controls::Page::Wipe || wipeBlocked || motionPending){*p++=BUSY;break;}
+      const auto previous=controls.page;
+      if(args[0]) {
+        controls.menu=5;controls.page=Controls::Page::WearCheck;controls.wear.reset();
+      } else if(previous==Controls::Page::WearCheck)controls.page=Controls::Page::Menu;
+      navigate(Controls::Effect::None,previous);*p++=OK;
+      break;
+    }
+    case 23: {
+      const auto s=acquisition.snapshot();const auto tilt=level.reading(now);const auto &w=controls.wear;
+      BleWear::Values v;
+      v.active=controls.page==Controls::Page::WearCheck;v.stage=uint8_t(w.stage());v.step=uint8_t(w.step());
+      v.alignment=uint8_t(w.evaluate(tilt));v.detectorReady=wearDetectorReady(s);v.outcome=uint8_t(w.lastOutcome());
+      v.mountHint=w.mountHint();v.tiltValid=tilt.valid();v.tilt=tilt.degrees;v.lastRpm=w.lastRpm();
+      for(unsigned i=0;i<WearCheck::STAGES;++i) {
+        v.count[i]=uint8_t(w.stageCount(i));v.stageMean[i]=w.stageMean(i);
+        for(unsigned k=0;k<WearCheck::PULLS_PER_STAGE;++k)v.rpm[i][k]=w.pullRpm(i,k);
+      }
+      v.mean=w.overallMean();v.medianMean=w.overallMedianMean();
+      return int32_t(BleWear::encode(v,out));
+    }
+    case 24: {
+      if(length!=3){*p++=INVALID;break;}
+      if(tournamentMode || editing() || themeRx.active() || milestoneRx.active() || effectRx.active()){*p++=BUSY;break;}
+      uint16_t bytes=0;memcpy(&bytes,args+1,2);
+      *p++=upload.begin(args[0],bytes)?OK:INVALID;
+      break;
+    }
+    case 25: {
+      if(length<3){*p++=INVALID;break;}
+      uint16_t offset=0;memcpy(&offset,args,2);
+      *p++=upload.add(offset,args+2,length-2)?OK:INVALID;
+      break;
+    }
+    case 26: {
+      if(!upload.complete()){*p++=INVALID;*p++=0;break;}
+      if(tournamentMode || editing()){*p++=BUSY;*p++=0;break;}
+      const auto s=acquisition.snapshot();
+      requestResult[0]=0;uploadTaking=true;
+      if(upload.kind()==BleUpload::Theme)finishThemeRequest(s);
+      else if(!finishEffectSetRequest(s))finishMilestoneRequest(s);
+      uploadTaking=false;upload.reset();
+      return int32_t(BleUpload::encodeResult(requestResult,out));
+    }
+    case 27: {
+      Palette::Custom theme;
+      if(length!=1 || args[0]>=Themes::SLOTS){*p++=INVALID;break;}
+      *p++=OK;
+      if(themeLibrary.get(args[0],theme)){theme.encode(p);p+=Palette::Custom::BYTES;}
+      break;
+    }
     case 16: {
       if(tournamentMode)return -HIDDEN;
       const auto s=acquisition.snapshot();BleDiagnostics::Values v;

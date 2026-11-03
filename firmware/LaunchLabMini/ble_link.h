@@ -20,7 +20,7 @@
 // a pull is being measured, apart from what `busy` lets through afterwards.
 namespace BleLink {
 static constexpr uint32_t START_AFTER_MS=1500,ADVERTISE_RETRY_MS=2000,FRAME_GAP_MS=15,BANNER_MS=1500;
-static constexpr size_t REPLY_BYTES=4096,COMMAND_BYTES=17,MAX_FRAME_BYTES=180,FRAME_HEAD=3;
+static constexpr size_t REPLY_BYTES=4096,COMMAND_BYTES=170,MAX_FRAME_BYTES=180,FRAME_HEAD=3;
 static constexpr uint8_t FLAG_LAST=1,FLAG_ERROR=2;
 static constexpr char SERVICE[]="4c4c0001-6265-7977-6174-63686c61626c";
 static constexpr char EVENTS[]="4c4c0002-6265-7977-6174-63686c61626c";

@@ -84,6 +84,7 @@ prefix = r'''
 #include "settings_save.h"
 #include "theme_store.h"
 #include "device_backup.h"
+#include <cstdarg>
 #include <cassert>
 #include <iostream>
 #define LOOP_HELPER
@@ -145,6 +146,10 @@ static ThemeStore themeStore;static DeviceBackup::LineReceiver<(Themes::Request:
 // Milestone requests (USB U): the real receiver, record and store.
 static Milestones::Config milestones;static MilestoneStore milestoneStore;
 static DeviceBackup::LineReceiver<(Milestones::Request::BYTES+2)/3*4> milestoneRx;
+static bool uploadTaking=false;
+static bool takeUpload(uint8_t *,size_t,size_t &){return false;}
+static void reportf(const char *format,...){char line[600];va_list args;va_start(args,format);vsnprintf(line,sizeof(line),format,args);va_end(args);Serial.printf("%s",line);}
+static void reportln(const char *line){Serial.println(line);}
 // Effect set requests (USB U op 3): the same receiver, the real record and store.
 static EffectSet::Config effectSet;static AppearanceStore<EffectSet::Config> effectSetStore;
 static Appearance::Effect upcomingEffect=Appearance::Effect::Off;

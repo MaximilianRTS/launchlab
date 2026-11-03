@@ -66,7 +66,7 @@ A firmware older than this protocol revision answers op 10 with status 4: treat 
 
 Status 2 means the capture of the latest pull is still finishing: retry after 300 ms, for up to 3 s. Status 3 in tournament mode. It replaces on the next pull and does not survive a restart, so fetch it right after the launch event.
 
-**Frame:** launcher axes, whatever the stick's Mounting, the same as a Top-mounted stick's: +X along the barrel, +Y toward the ripcord handle, -Y toward the cord, +Z up, with real gravity-relative roll and pitch kept. Compass heading is meaningless: each replay turns it so the barrel (+X) starts at 45° in the horizontal plane. Position, height and speed are not measured, so the model stays centred.
+**Frame:** launcher axes, whatever the stick's Mounting, the same as a Top-mounted stick's: +X along the barrel, +Y toward the ripcord handle, -Y away from it, +Z up, with real gravity-relative roll and pitch kept. Compass heading is meaningless: each replay turns it so the barrel (+X) starts at 45° in the horizontal plane. Position, height and speed are not measured, so the model stays centred.
 
 **View:** from above and to one side: barrel toward the viewer and to the left, ripcord handle to the right. Turn each posed point `(x, y, z)` by -45° about Z, which undoes the replay's heading: `(u, v) = ((x + y) * 0.7071, (y - x) * 0.7071)`. Then project with `sx = v * 0.866 - u * 0.5`, `sy = (u * 0.866 + v * 0.5) * 0.643 - z * 0.766` (camera 40° above the floor, 30° to the side). The direction toward the viewer is `(0.663, 0.383, 0.643)` in `(u, v, z)`. The device's own screen is drawn true to the glass, each part pointing where it really is from the screen as held: this view turned about the vertical so the end at the top of the screen is the far end, and by 30° more to take out the side angle. With Flip Off, Top 90 R has the barrel straight down and the ripcord handle to the right, Top 90 L the barrel up and the handle left, Top and Sidecar the barrel left and the handle down; Flip On turns each by a further 180°. An app may start from the same height but straight on, with no side angle (`sx = v`, `sy = u * 0.643 - z * 0.766`).
 
@@ -112,6 +112,55 @@ The counters run since boot. `weak`, `slow`, `shape` and `inconsistent` are move
 
 Status 3 in tournament mode. An older device answers unknown command. Ask no more than about once a second, and only while it is on screen.
 
+## Bests, milestones and effects
+
+| op | Name | Arguments | Reply payload |
+| --- | --- | --- | --- |
+| 17 | Get bests | none | 4 × `rpm f32`, 0 for none |
+| 18 | Get milestones | none | `mode u8 (0 New best, 1 Milestones, 2 Both), count u8`, then repeated `rpm u16, pool 16 bytes` |
+| 19 | Get effects | none | `effect set 16 bytes`, then repeated `value u8, length u8, label` |
+| 20 | Preview effect | `value u8`, 255 for the saved one | `status u8` |
+
+**Bests:** the stick's personal bests, in the order QRE 3-turn average, QRE 1-turn peak, TCRT 3-turn average, TCRT 1-turn peak: index `sensorProfile * 2 + rpmMethod`, the values of settings 4 and 1. They outlast the 128 launches the stick keeps. Status 3 in tournament mode, as for Get milestones.
+
+**Masks:** a pool and the effect set are 128 bits, low word first: bit n is the effect stored as n. Get effects lists every effect that can play now, loaded ones included.
+
+**Preview** replays the latest recap with that effect on the stick's screen and speaker. Bests, history and settings do not change. Status 1 for an effect that cannot play or with no pull since boot, 2 in tournament mode, while an editor or the wear check is open, or while a pull's capture finishes.
+
+## Tournament
+
+| op | Name | Arguments | Reply payload |
+| --- | --- | --- | --- |
+| 21 | Start tournament | `1` | `status u8` |
+
+It starts in Recording Only. Only the stick can leave it, so a phone cannot lift what it hides. Status 0 when it is on already, 1 for another argument, 2 during a pull, with an editor or the wear check open.
+
+## String wear check
+
+| op | Name | Arguments | Reply payload |
+| --- | --- | --- | --- |
+| 22 | Set wear check | `action u8`: `1` start or start over, `0` leave | `status u8` |
+| 23 | Get wear check | none | see below |
+
+Starting opens the stick's own Wear check page, which measures and judges as ever; leaving returns it to the menu. While the page is open, whoever opened it, Set setting, New session, Set name, Set level reference, Preview effect and uploads return status 2. Results live on that page: they are lost when it closes and stay out of the history, so an app that wants them keeps them.
+
+**Wear check:** 75 bytes: `active u8, stage u8 (0 level, 1 pull down, 2 pull up, 3 complete), step u8 (0 pull out, 1 hold, 2 let go, 3 retracting), alignment u8 (0 no IMU, 1 hold level, 2 hold 90°, 3 flip 180°, 4 ready), detectorReady u8, outcome u8, mountHint u8, tiltValid u8, tilt f32, lastRpm f32, count 3 × u8, rpm 9 × f32 (three per stage), mean f32, medianMean f32, stageMean 3 × f32`.
+
+`outcome` is the last pull's: 0 none, 1 accepted, 2 completed, 3 no signal, 4 no IMU, 5 not level, 6 not vertical, 7 wrong way up, 8 the pull out (not counted), 9 let go too early, 10 not measured. `mountHint` means the unit sits level only in the other Mounting family. There is no fresh-string baseline, so no health percentage: read the RPM and how it changes. Poll it about 3 times a second while on screen.
+
+## Uploads
+
+| op | Name | Arguments | Reply payload |
+| --- | --- | --- | --- |
+| 24 | Begin upload | `kind u8 (1 milestones or effect set, 2 theme), length u16` | `status u8` |
+| 25 | Upload piece | `offset u16, bytes` (up to 160) | `status u8` |
+| 26 | Finish upload | none | `status u8, length u8, line` |
+| 27 | Get theme | `slot u8` | `status u8`, then the 32-byte record, or nothing for an empty slot |
+
+The bytes are the framed, checksummed request the website sends over USB, without the base64: `LLU\3` (Set or Reset) for milestones, `LLU\1` with op 3 for the effect set, `LLQ\1` for a theme (Put, Delete, Select, Clear). They come in order; another Begin starts over. Finish runs the USB code, which checks the request whole and saves it, or changes nothing. Its status is 0 ok, 2 busy (try again), 1 refused, and `line` is the request's result line, such as `THEME_ERROR op=put slot=0 reason=nvs_space ...`. Loaded effects are not uploaded this way: their files come from a compiler the app does not have.
+
+**Theme record:** `used u8 = 1, name 15 bytes (1-14 printable ASCII, NUL padded), 8 × colour u16` (RGB565): background, text, muted, accent, number, warning, ready, alert. The theme's value in setting 5 is `10 + slot`.
+
 ## Launcher model
 
 The device draws this simple shape, in launcher axes, as flat-shaded boxes; the app may draw more detail within about the same extents. Subtract the centre (0.6, -0.1, 0), then multiply by 0.62, so the turn stays on screen.
@@ -123,7 +172,6 @@ The device draws this simple shape, in launcher axes, as flat-shaded boxes; the 
 | Barrel | launcher | x 0.85..2.10, y -0.30..0.30, z -0.16..0.08 |
 | Ripcord stem | launcher | x -0.05..0.05, y 0.45..0.78, z -0.05..0.05 |
 | Ripcord bar | launcher | x -0.22..0.22, y 0.78..0.86, z -0.05..0.05 |
-| Cord | launcher | x -0.02..0.02, y -1.10..-0.45, z -0.02..0.02 |
 
 The stick follows Mounting. Its body is light, with a dark screen always drawn over it, nearer its pin end; its USB end is the other end:
 
@@ -134,7 +182,7 @@ The stick follows Mounting. Its body is light, with a dark screen always drawn o
 | Top 90 L | x -0.38..0.38, y -0.43..-0.03, z 0.15..0.36 | x -0.28..0.10, y -0.36..-0.10, z 0.36..0.37 | along the barrel on the head's left half, USB toward the barrel |
 | Sidecar | x -0.66..-0.45, y -0.38..0.38, z -0.20..0.20 | x -0.67..-0.66, y -0.10..0.28, z -0.13..0.13 | upright at the head's far side, screen away from the barrel |
 
-It is a schematic after the common string launcher, not an exact shape.
+It is a schematic after the common string launcher, not an exact shape. The rope stays inside on the side away from the handle, so nothing shows there.
 
 ## Mounting
 
