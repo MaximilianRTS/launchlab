@@ -25,7 +25,7 @@ for report in reports:
         location, size, kind = line.rsplit('\t', 2)
         name = re.sub(r'^.*:\d+:\d+:', '', location)
         # Library templates instantiated here (M5GFX, newlib) are budgeted by their owners.
-        if '/LaunchLabMini/' not in location.split(':', 1)[0]:
+        if '/LaunchLabMini/' not in re.sub(r':\d+:\d+:.*$', '', location).replace(chr(92), '/'):
             continue
         size = int(size)
         if kind.strip() != 'static':

@@ -51,6 +51,6 @@ cp -R LaunchLabMini/src build-source/LaunchLabMini/
 "$CLI" compile --config-file "$CACHE/launchlab-config.yaml" \
   --fqbn 'esp32:esp32:esp32s3:CDCOnBoot=cdc,USBMode=hwcdc,FlashSize=8M,PartitionScheme=default_8MB,PSRAM=opi' \
   --build-property "tools.esp32-arduino-libs.path=$LAUNCHLAB_PM_SDK" \
-  --build-property 'compiler.cpp.extra_flags=-DVQF_SINGLE_PRECISION -fstack-usage -DLAUNCHLAB_MOTION_ADC_GATE=1 -DLAUNCHLAB_CPU_PM=1' \
+  --build-property "compiler.cpp.extra_flags=${LAUNCHLAB_EXTRA_FLAGS:-} -mtext-section-literals -DVQF_SINGLE_PRECISION -fstack-usage -DLAUNCHLAB_MOTION_ADC_GATE=1 -DLAUNCHLAB_CPU_PM=1" \
   --build-path "$PWD/build" build-source/LaunchLabMini
 python3 tools/check_stack_usage.py "$PWD/build"
