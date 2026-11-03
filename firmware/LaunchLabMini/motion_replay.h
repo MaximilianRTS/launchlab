@@ -148,7 +148,7 @@ inline Vec point(unsigned i) {
 // The launcher (docs/BLE_PROTOCOL.md, Launcher model): boxes in launcher axes,
 // in flash. Nothing is computed or kept between frames.
 namespace Launcher {
-enum Part:uint8_t {Head,Neck,Barrel,Stem,Bar,Stick,Screen,PARTS};
+enum Part:uint8_t {Head,Neck,Barrel,Stem,Bar,Cord,Stick,Screen,PARTS};
 struct Box {Vec low,high;};
 static constexpr float SCALE=.62f;
 // How far the handle travels before it leaves, in spec units: it stays on screen.
@@ -159,7 +159,8 @@ static constexpr Box BODY[6]={
   {{.45f,-.36f,-.14f},{.85f,.36f,.10f}},   // Neck
   {{.85f,-.30f,-.16f},{2.10f,.30f,.08f}},  // Barrel
   {{-.05f,.45f,-.05f},{.05f,.78f,.05f}},   // Ripcord stem
-  {{-.22f,.78f,-.05f},{.22f,.86f,.05f}}};  // Ripcord bar
+  {{-.22f,.78f,-.05f},{.22f,.86f,.05f}},   // Ripcord bar
+  {{-.02f,-1.10f,-.02f},{.02f,-.45f,.02f}}};// Cord
 // By MountOrientation::Mode: Top, Sidecar, Top 90 L, Top 90 R.
 static constexpr Box STICK[MountOrientation::MODES]={
   {{-.20f,-.38f,.15f},{.20f,.38f,.36f}},{{-.66f,-.38f,-.20f},{-.45f,.38f,.20f}},
@@ -215,7 +216,7 @@ inline float light(Vec normal){return std::max(0.0f,viewU(normal)*.35f-viewV(nor
 // `pull`: how far the ripcord is out, from ripcordAt. At 1 it and its cord are gone.
 template<class Emit> inline void paint(const Axes &a,MountOrientation::Mode mount,Emit &&emit,float pull=0) {
   auto part=[&](Part p) {
-    if(pull>=1 && (p==Stem || p==Bar))return;
+    if(pull>=1 && (p==Stem || p==Bar || p==Cord))return;
     Box b=box(p,mount);Vec world[8];
     if(p==Stem)b.high.y+=pull*RIPCORD_TRAVEL;
     if(p==Bar){b.low.y+=pull*RIPCORD_TRAVEL;b.high.y+=pull*RIPCORD_TRAVEL;}
@@ -227,8 +228,8 @@ template<class Emit> inline void paint(const Axes &a,MountOrientation::Mode moun
   };
   const bool fromPlusX=towardViewer(a.x)>=0,fromPlusY=towardViewer(a.y)>=0,fromAbove=towardViewer(a.z)>=0;
   auto headGroup=[&](){
-    if(fromPlusY){part(Head);part(Stem);part(Bar);}
-    else{part(Bar);part(Stem);part(Head);}
+    if(fromPlusY){part(Cord);part(Head);part(Stem);part(Bar);}
+    else{part(Bar);part(Stem);part(Head);part(Cord);}
   };
   auto stick=[&](){part(Stick);part(Screen);};
   const bool sidecar=mount==MountOrientation::Mode::Sidecar;

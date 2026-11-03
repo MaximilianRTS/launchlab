@@ -19,7 +19,7 @@ static void testLauncherGeometry() {
     assert(sameBox(box(Barrel,m),{.85f,-.30f,-.16f},{2.10f,.30f,.08f}));
     assert(sameBox(box(Stem,m),{-.05f,.45f,-.05f},{.05f,.78f,.05f}));
     assert(sameBox(box(Bar,m),{-.22f,.78f,-.05f},{.22f,.86f,.05f}));
-    
+    assert(sameBox(box(Cord,m),{-.02f,-1.10f,-.02f},{.02f,-.45f,.02f}));
   }
   assert(sameBox(box(Stick,Mode::Top),{-.20f,-.38f,.15f},{.20f,.38f,.36f}));
   assert(sameBox(box(Screen,Mode::Top),{-.13f,-.10f,.36f},{.13f,.28f,.37f}));
@@ -292,10 +292,10 @@ int main() {
     // Out, the handle stays whole; gone, no face of it or its cord is drawn.
     using namespace Launcher;
     Axes flat{{1,0,0},{0,1,0},{0,0,1}};unsigned parts=0;bool cord=false;
-    paint(flat,MountOrientation::Mode::Top,[&](Part p,const Vec *,const uint8_t *,Vec){++parts;cord|=p==Bar || p==Stem;},.5f);
+    paint(flat,MountOrientation::Mode::Top,[&](Part p,const Vec *,const uint8_t *,Vec){++parts;cord|=p==Bar || p==Stem || p==Cord;},.5f);
     assert(parts>0 && cord);
     cord=false;
-    paint(flat,MountOrientation::Mode::Top,[&](Part p,const Vec *,const uint8_t *,Vec){cord|=p==Bar || p==Stem;},1.0f);
+    paint(flat,MountOrientation::Mode::Top,[&](Part p,const Vec *,const uint8_t *,Vec){cord|=p==Bar || p==Stem || p==Cord;},1.0f);
     assert(!cord);
   }
   Replay rotation,translated,heading;assert(rotation.build(trace()) && translated.build(trace(2)) && heading.build(trace(0,123)));

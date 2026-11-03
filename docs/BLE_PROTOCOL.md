@@ -66,7 +66,7 @@ A firmware older than this protocol revision answers op 10 with status 4: treat 
 
 Status 2 means the capture of the latest pull is still finishing: retry after 300 ms, for up to 3 s. Status 3 in tournament mode. It replaces on the next pull and does not survive a restart, so fetch it right after the launch event.
 
-**Frame:** launcher axes, whatever the stick's Mounting, the same as a Top-mounted stick's: +X along the barrel, +Y toward the ripcord handle, -Y away from it, +Z up, with real gravity-relative roll and pitch kept. Compass heading is meaningless: each replay turns it so the barrel (+X) starts at 45° in the horizontal plane. Position, height and speed are not measured, so the model stays centred.
+**Frame:** launcher axes, whatever the stick's Mounting, the same as a Top-mounted stick's: +X along the barrel, +Y toward the ripcord handle, -Y toward the cord, +Z up, with real gravity-relative roll and pitch kept. Compass heading is meaningless: each replay turns it so the barrel (+X) starts at 45° in the horizontal plane. Position, height and speed are not measured, so the model stays centred.
 
 **View:** from above and to one side: barrel toward the viewer and to the left, ripcord handle to the right. Turn each posed point `(x, y, z)` by -45° about Z, which undoes the replay's heading: `(u, v) = ((x + y) * 0.7071, (y - x) * 0.7071)`. Then project with `sx = v * 0.866 - u * 0.5`, `sy = (u * 0.866 + v * 0.5) * 0.643 - z * 0.766` (camera 40° above the floor, 30° to the side). The direction toward the viewer is `(0.663, 0.383, 0.643)` in `(u, v, z)`. The device's own screen is drawn true to the glass, each part pointing where it really is from the screen as held: this view turned about the vertical so the end at the top of the screen is the far end, and by 30° more to take out the side angle. With Flip Off, Top 90 R has the barrel straight down and the ripcord handle to the right, Top 90 L the barrel up and the handle left, Top and Sidecar the barrel left and the handle down; Flip On turns each by a further 180°. An app may start from the same height but straight on, with no side angle (`sx = v`, `sy = u * 0.643 - z * 0.766`).
 
@@ -172,6 +172,7 @@ The device draws this simple shape, in launcher axes, as flat-shaded boxes; the 
 | Barrel | launcher | x 0.85..2.10, y -0.30..0.30, z -0.16..0.08 |
 | Ripcord stem | launcher | x -0.05..0.05, y 0.45..0.78, z -0.05..0.05 |
 | Ripcord bar | launcher | x -0.22..0.22, y 0.78..0.86, z -0.05..0.05 |
+| Cord | launcher | x -0.02..0.02, y -1.10..-0.45, z -0.02..0.02 |
 
 The stick follows Mounting. Its body is light, with a dark screen always drawn over it, nearer its pin end; its USB end is the other end:
 
@@ -182,7 +183,7 @@ The stick follows Mounting. Its body is light, with a dark screen always drawn o
 | Top 90 L | x -0.38..0.38, y -0.43..-0.03, z 0.15..0.36 | x -0.28..0.10, y -0.36..-0.10, z 0.36..0.37 | along the barrel on the head's left half, USB toward the barrel |
 | Sidecar | x -0.66..-0.45, y -0.38..0.38, z -0.20..0.20 | x -0.67..-0.66, y -0.10..0.28, z -0.13..0.13 | upright at the head's far side, screen away from the barrel |
 
-It is a schematic after the common string launcher, not an exact shape. The rope stays inside on the side away from the handle, so nothing shows there.
+It is a schematic after the common string launcher, not an exact shape. An app may leave out the cord for a string launcher, whose rope stays inside.
 
 ## Mounting
 
