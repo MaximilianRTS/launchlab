@@ -29,5 +29,6 @@ template<class Canvas>inline void drawIcon(Canvas &,uint16_t,uint16_t,uint16_t,u
 namespace BleCommands {
 inline int32_t run(uint8_t,const uint8_t *,size_t,uint8_t *,size_t){return -4;}
 template<class State>inline void tickLiveTilt(uint32_t,const State &){}
+template<class State>inline void tickWear(uint32_t,const State &){}
 template<class State>inline bool answerPairing(bool,const State &){return false;}
 }

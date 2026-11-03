@@ -3000,6 +3000,32 @@ LOOP_HELPER static bool answerPairing(bool buttonsFresh,const Snapshot &s) {
   return true;
 }
 static uint8_t phoneState(const Snapshot &s){return s.signalFault?3:s.phase==AnalogTachometer::Phase::Launch?1:s.resting?2:0;}
+LOOP_HELPER static BleWear::Values wearValues(uint32_t now,const Snapshot &s) {
+  const auto tilt=level.reading(now);const auto &w=controls.wear;
+  BleWear::Values v;
+  v.active=controls.page==Controls::Page::WearCheck;v.stage=uint8_t(w.stage());v.step=uint8_t(w.step());
+  v.alignment=uint8_t(w.evaluate(tilt));v.detectorReady=wearDetectorReady(s);v.outcome=uint8_t(w.lastOutcome());
+  v.mountHint=w.mountHint();v.tiltValid=tilt.valid();v.tilt=tilt.degrees;v.lastRpm=w.lastRpm();
+  for(unsigned i=0;i<WearCheck::STAGES;++i) {
+    v.count[i]=uint8_t(w.stageCount(i));v.stageMean[i]=w.stageMean(i);
+    for(unsigned k=0;k<WearCheck::PULLS_PER_STAGE;++k)v.rpm[i][k]=w.pullRpm(i,k);
+  }
+  v.mean=w.overallMean();v.medianMean=w.overallMedianMean();
+  const auto shown=StickS3Level::forDisplay(tilt,visibleDisplayFlipped(),MountOrientation::quarterTurns(liveMount));
+  w.reticleOffset(WearCheck::Tilt(tilt),WearCheck::Tilt(shown),v.reticleX,v.reticleY);
+  return v;
+}
+// The wear check's instruction as it changes, at most 10 times a second. Like live tilt it
+// waits out a pull being measured.
+LOOP_HELPER static void tickWear(uint32_t now,const Snapshot &s) {
+  static uint8_t sent[BleWear::EVENT_BYTES]={};static uint32_t sentAt=0;
+  if(controls.page!=Controls::Page::WearCheck){sent[0]=0;return;}
+  if(!BleLink::connected() || s.phase==AnalogTachometer::Phase::Launch || now-sentAt<100)return;
+  uint8_t event[BleWear::EVENT_BYTES];BleWear::encodeEvent(wearValues(now,s),event);
+  if(!memcmp(event,sent,sizeof(event)))return;
+  memcpy(sent,event,sizeof(event));sentAt=now;
+  BleLink::publishEvent(event,sizeof(event));
+}
 LOOP_HELPER static int32_t run(uint8_t op,const uint8_t *args,size_t length,uint8_t *out,size_t capacity) {
   const uint32_t now=millis();uint8_t *p=out;
   const size_t room=capacity;
@@ -3110,19 +3136,7 @@ LOOP_HELPER static int32_t run(uint8_t op,const uint8_t *args,size_t length,uint
       navigate(Controls::Effect::None,previous);*p++=OK;
       break;
     }
-    case 23: {
-      const auto s=acquisition.snapshot();const auto tilt=level.reading(now);const auto &w=controls.wear;
-      BleWear::Values v;
-      v.active=controls.page==Controls::Page::WearCheck;v.stage=uint8_t(w.stage());v.step=uint8_t(w.step());
-      v.alignment=uint8_t(w.evaluate(tilt));v.detectorReady=wearDetectorReady(s);v.outcome=uint8_t(w.lastOutcome());
-      v.mountHint=w.mountHint();v.tiltValid=tilt.valid();v.tilt=tilt.degrees;v.lastRpm=w.lastRpm();
-      for(unsigned i=0;i<WearCheck::STAGES;++i) {
-        v.count[i]=uint8_t(w.stageCount(i));v.stageMean[i]=w.stageMean(i);
-        for(unsigned k=0;k<WearCheck::PULLS_PER_STAGE;++k)v.rpm[i][k]=w.pullRpm(i,k);
-      }
-      v.mean=w.overallMean();v.medianMean=w.overallMedianMean();
-      return int32_t(BleWear::encode(v,out));
-    }
+    case 23:return int32_t(BleWear::encode(wearValues(now,acquisition.snapshot()),out));
     case 24: {
       if(length!=3){*p++=INVALID;break;}
       if(tournamentMode || editing() || themeRx.active() || milestoneRx.active() || effectRx.active()){*p++=BUSY;break;}
@@ -3204,6 +3218,7 @@ void loop() {
   if(BleLink::tick(millis(),bluetoothAtBoot,s.phase==AnalogTachometer::Phase::Launch))dirty=true;
   if(BleLink::takeBondsChanged()){settingsSave.mark(SettingsSave::Bonds);dirty=true;}
   BleCommands::tickLiveTilt(millis(),s);
+  BleCommands::tickWear(millis(),s);
   restartForBluetooth(millis(),s);
   if(buttonsFresh && (M5.BtnA.isPressed() || M5.BtnB.isPressed() || M5.BtnA.wasReleased() || M5.BtnB.wasReleased()))
     inactivity.touch(millis());

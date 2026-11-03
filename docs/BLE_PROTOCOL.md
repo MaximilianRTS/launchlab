@@ -15,7 +15,7 @@ Bluetooth is off until enabled on the device, under Menu, Bluetooth; changing it
 Launch, 13 bytes, sent once when a pull has ended:
 `type u8 = 1, number u32, session u32, rpm f32`.
 
-`number` only rises on one device. Ignore any other `type`. No launch events are sent in tournament mode.
+`number` only rises on one device. Ignore any other `type`. No launch events are sent in tournament mode. The string wear check adds event 3 and live tilt event 2, below.
 The curve for this pull can be requested as soon as the event arrives; a later pull replaces it.
 
 ## Pairing
@@ -144,9 +144,11 @@ It starts in Recording Only. Only the stick can leave it, so a phone cannot lift
 
 Starting opens the stick's own Wear check page, which measures and judges as ever; leaving returns it to the menu. While the page is open, whoever opened it, Set setting, New session, Set name, Set level reference, Preview effect and uploads return status 2. Results live on that page: they are lost when it closes and stay out of the history, so an app that wants them keeps them.
 
-**Wear check:** 75 bytes: `active u8, stage u8 (0 level, 1 pull down, 2 pull up, 3 complete), step u8 (0 pull out, 1 hold, 2 let go, 3 retracting), alignment u8 (0 no IMU, 1 hold level, 2 hold 90°, 3 flip 180°, 4 ready), detectorReady u8, outcome u8, mountHint u8, tiltValid u8, tilt f32, lastRpm f32, count 3 × u8, rpm 9 × f32 (three per stage), mean f32, medianMean f32, stageMean 3 × f32`.
+**Wear check:** 83 bytes: `active u8, stage u8 (0 level, 1 pull down, 2 pull up, 3 complete), step u8 (0 pull out, 1 hold, 2 let go, 3 retracting), alignment u8 (0 no IMU, 1 hold level, 2 hold 90°, 3 flip 180°, 4 ready), detectorReady u8, outcome u8, mountHint u8, tiltValid u8, tilt f32, lastRpm f32, count 3 × u8, rpm 9 × f32 (three per stage), mean f32, medianMean f32, stageMean 3 × f32, reticleX f32, reticleY f32`.
 
-`outcome` is the last pull's: 0 none, 1 accepted, 2 completed, 3 no signal, 4 no IMU, 5 not level, 6 not vertical, 7 wrong way up, 8 the pull out (not counted), 9 let go too early, 10 not measured. `mountHint` means the unit sits level only in the other Mounting family. There is no fresh-string baseline, so no health percentage: read the RPM and how it changes. Poll it about 3 times a second while on screen.
+`outcome` is the last pull's: 0 none, 1 accepted, 2 completed, 3 no signal, 4 no IMU, 5 not level, 6 not vertical, 7 wrong way up, 8 the pull out (not counted), 9 let go too early, 10 not measured. `mountHint` means the unit sits level only in the other Mounting family. There is no fresh-string baseline, so no health percentage: read the RPM and how it changes. `reticleX` and `reticleY` place the stick's aiming dot, -1 to 1, with the target ring at 0.5.
+
+While the page is open and a phone is connected, event 3 carries what changes the instruction as it changes, at most 10 times a second and not during a pull being measured: 10 bytes, `type u8 = 3, stage u8, step u8, alignment u8, detectorReady u8, outcome u8, mountHint u8, count 3 × u8`. Get wear check adds the tilt, the reticle and the RPM: poll it about 5 times a second while on screen.
 
 ## Uploads
 

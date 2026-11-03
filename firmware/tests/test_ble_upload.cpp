@@ -36,5 +36,8 @@ int main() {
   assert(w[0]==1 && w[1]==2 && w[2]==3 && w[3]==4 && w[4]==1 && w[5]==2 && w[6]==1 && w[7]==1);
   assert(f(8)==1.5f);assert(f(12)==2.5f);assert(w[18]==3);
   assert(f(19+32)==9.5f);assert(f(55)==10.5f);assert(f(59)==11.5f);assert(f(71)==12.5f);
+  v.reticleX=-.5f;v.reticleY=.25f;BleWear::encode(v,w);assert(f(75)==-.5f);assert(f(79)==.25f);
+  uint8_t e[BleWear::EVENT_BYTES];BleWear::encodeEvent(v,e);
+  assert(e[0]==3 && e[1]==2 && e[2]==3 && e[3]==4 && e[4]==1 && e[5]==2 && e[6]==1 && e[9]==3);
   std::cout<<"ble upload tests passed\n";
 }
