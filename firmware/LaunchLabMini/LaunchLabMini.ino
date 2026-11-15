@@ -986,7 +986,18 @@ LOOP_HELPER static void draw(const Snapshot &s) {
       case Controls::Page::Bluetooth:ControlsUI::bluetoothPage(view,controls.bluetoothRow,bluetoothOn,BleLink::connected(),BattlePass::NAME,BleLink::bondCount());break;
       case Controls::Page::ForgetPhones:ControlsUI::forgetPhones(view,controls.forgetChosen);break;
       case Controls::Page::EnableBluetooth:ControlsUI::enableBluetooth(view,controls.enableChosen);break;
-      case Controls::Page::BeybladeX:ControlsUI::beybladeX(view,BattlePassFeed::view());break;
+      case Controls::Page::BeybladeX:
+        // After a pull, its result as Main shows it, until it closes by itself;
+        // A held stays the pass's button throughout.
+        if(launchFeedback.shown()) {
+          MotionUI::feedback(view,motionDemo?demoMotion:latestMotion,
+            motionPending && !motionDemo,motionDemo,MotionReplay::playbackProgress(motionDemo?demoMotion:latestMotion,
+              launchFeedback.position(replayFrameElapsed)),visibleDisplayFlipped(),colors,celebrationBadge(),
+            motionDemo?MotionUI::demoCurve(demoMotion.rpm):latestCurve);
+          ControlsUI::footer(view,"Hold A Button  B Back");
+        }
+        else ControlsUI::beybladeX(view,BattlePassFeed::view());
+        break;
       default:PracticeUI::draw(view,demo?demoPractice:practice,historyView,historyOffset,demo,colors);break;
     }
   } else if(launchFeedback.shown()) {
@@ -1588,7 +1599,7 @@ static void browseOlder() {
 static void navigate(Controls::Effect effect,Controls::Page previous) {
   if(previous==Controls::Page::Wipe && controls.page!=previous)wipeConfirmation.cancel();
   if(previous!=controls.page || effect==Controls::Effect::Recap || effect==Controls::Effect::Tournament)bestEffect.clear();
-  if(previous==Controls::Page::Main && controls.page!=previous)launchFeedback.clear();
+  if((previous==Controls::Page::Main || previous==Controls::Page::BeybladeX) && controls.page!=previous)launchFeedback.clear();
   if(previous!=controls.page){diagnostics=false;motionDemo=false;demo=false;historyOffset=0;}
   switch(effect) {
     case Controls::Effect::Recap:toggleFeedback();break;
