@@ -75,11 +75,31 @@ inline void shots(const Shots &s,Packet out[8]) {
 }
 // A1: a clear is done.
 inline Packet cleared(){Packet p{};p[0]=CLEARED;return p;}
-// 70-73: the latest launch turn by turn from where the pull began, 32 turns.
-inline void curve(const uint16_t *rpm,unsigned count,Packet out[4]) {
-  for(unsigned k=0;k<4;++k) {
-    Packet &p=out[k];p={};p[0]=uint8_t(CURVE+k);
-    for(unsigned i=0;i<8;++i){const unsigned point=k*8+i;if(point<count)put16(p,1+i*2,curveValue(rpm[point]));}
+// 70-73: the latest launch over its whole time, from where the pull began to
+// its last turn, in 32 equal spans. Each point is the RPM averaged over its
+// span: turn j stands for the time since the one before, (ms[j-1], ms[j]],
+// weighted by how much of the span it covers. The first 32 turns alone would
+// be the first tenth of a second or so of a pull, its rise and none of its
+// slowdown, and one odd turn would stand as a spike. No turn: no points.
+inline void curve(const uint16_t *ms,const uint16_t *rpm,unsigned count,Packet out[4]) {
+  for(unsigned k=0;k<4;++k){out[k]={};out[k][0]=uint8_t(CURVE+k);}
+  if(!count)return;
+  const uint64_t span=ms[count-1];
+  for(unsigned k=0;k<CURVE_POINTS;++k) {
+    uint32_t r=rpm[count-1];
+    if(span) {
+      // In ms x CURVE_POINTS, so every span's bounds are whole numbers.
+      const uint64_t from=k*span,to=(k+1)*span;
+      uint64_t sum=0,weight=0,lo=0;
+      for(unsigned j=0;j<count;++j) {
+        const uint64_t hi=uint64_t(ms[j])*CURVE_POINTS;
+        const uint64_t a=std::max(lo,from),b=std::min(hi,to);
+        if(b>a){sum+=uint64_t(rpm[j])*(b-a);weight+=b-a;}
+        lo=std::max(lo,hi);
+      }
+      if(weight)r=uint32_t((sum+weight/2)/weight);
+    }
+    put16(out[k/8],1+(k%8)*2,curveValue(uint16_t(r)));
   }
 }
 

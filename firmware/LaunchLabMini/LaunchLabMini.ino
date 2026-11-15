@@ -1483,7 +1483,7 @@ LOOP_HELPER static void sendStatus(bool attached,const BattlePass::Shots &s) {
 LOOP_HELPER static void sendShots(const BattlePass::Shots &s) {
   if(!s.count)return;
   BattlePass::Packet list[8],turns[4];
-  BattlePass::shots(s,list);BattlePass::curve(latestCurve.rpm,latestCurve.count,turns);
+  BattlePass::shots(s,list);BattlePass::curve(latestCurve.ms,latestCurve.rpm,latestCurve.count,turns);
   for(const auto &packet:list)BleLink::passSend(packet);
   for(const auto &packet:turns)BleLink::passSend(packet);
 }
