@@ -21,7 +21,9 @@ static constexpr unsigned SHOTS=50,CURVE_POINTS=32;
 // are not understood well enough to act on, and are ignored.
 static constexpr uint8_t ASK_STATUS=0x51,ASK_SHOTS=0x74;
 static constexpr uint8_t STATUS=0xa0,LIST=0xb0,LIST_END=0xb6,CHECK=0xb7,CURVE=0x70,CURVE_END=0x73;
-static constexpr uint8_t ATTACHED=0x04,DETACHED=0x00;
+// Status byte 3. BUTTON: the pass's button is held, which apps ask for when a
+// pass is registered; on this stick, A held on the Beyblade X page.
+static constexpr uint8_t ATTACHED=0x04,DETACHED=0x00,BUTTON=0x10;
 // Between packets, and before the status a new subscription gets.
 static constexpr uint32_t GAP_MS=10,GREETING_MS=100;
 using Packet=std::array<uint8_t,BYTES>;
@@ -43,9 +45,10 @@ struct Shots {
 
 // A0: whether a top is on the launcher, the battery, the best and the count.
 // The real device runs on two AAA cells and sends 0-250 for 2.00-3.00 V; apps
-// show raw/250, so a percentage is sent as percent * 2.5.
-inline Packet status(bool attached,int batteryPercent,uint16_t best,uint16_t total,const uint8_t *id) {
-  Packet p{};p[0]=STATUS;p[3]=attached?ATTACHED:DETACHED;
+// show raw/250, so a percentage is sent as percent * 2.5. A held button is
+// what the status says while it lasts.
+inline Packet status(bool attached,int batteryPercent,uint16_t best,uint16_t total,const uint8_t *id,bool button=false) {
+  Packet p{};p[0]=STATUS;p[3]=button?BUTTON:attached?ATTACHED:DETACHED;
   p[4]=uint8_t(std::min(250,std::max(0,batteryPercent)*5/2));
   put16(p,7,best);put16(p,9,total);std::memcpy(p.data()+11,id,6);
   return p;

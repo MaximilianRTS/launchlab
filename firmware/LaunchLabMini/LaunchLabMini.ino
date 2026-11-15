@@ -923,6 +923,8 @@ static const char *celebrationBadge() {
   if(bestEffect.best())return "NEW BEST";
   Milestones::milestoneText(text,sizeof(text),bestEffect.milestone());return text;
 }
+// The Beyblade X page's view, from the Battle Pass feed further down.
+namespace BattlePassFeed {LOOP_HELPER static ControlsUI::PassView view();}
 LOOP_HELPER static void draw(const Snapshot &s) {
   const int64_t started=esp_timer_get_time();
   const Palette::Colors colors=ui();
@@ -979,6 +981,7 @@ LOOP_HELPER static void draw(const Snapshot &s) {
       case Controls::Page::Bluetooth:ControlsUI::bluetoothPage(view,controls.bluetoothRow,bluetoothOn,BleLink::connected(),BattlePass::NAME,BleLink::bondCount());break;
       case Controls::Page::ForgetPhones:ControlsUI::forgetPhones(view,controls.forgetChosen);break;
       case Controls::Page::EnableBluetooth:ControlsUI::enableBluetooth(view,controls.enableChosen);break;
+      case Controls::Page::BeybladeX:ControlsUI::beybladeX(view,BattlePassFeed::view());break;
       default:PracticeUI::draw(view,demo?demoPractice:practice,historyView,historyOffset,demo,colors);break;
     }
   } else if(launchFeedback.shown()) {
@@ -1446,6 +1449,10 @@ static void commitSetting() {
 // app for the BEYBATTLE PASS is told. Tournament mode hides RPM, so it tells
 // nothing then, like the LaunchLab profile.
 namespace BattlePassFeed {
+// A held on the Beyblade X page: the pass's button, which apps ask for to
+// register a pass. What the Beyblade X page last showed, so it redraws on a change.
+static bool button=false;
+static uint32_t shownKey=0;
 LOOP_HELPER static BattlePass::Shots shots() {
   BattlePass::Shots out;
   const unsigned kept=practice.size(),listed=std::min<unsigned>(kept,BattlePass::SHOTS);
@@ -1460,7 +1467,7 @@ LOOP_HELPER static BattlePass::Shots shots() {
 LOOP_HELPER static void sendStatus(bool attached,const BattlePass::Shots &s) {
   uint8_t id[6]={};esp_efuse_mac_get_default(id);
   const uint32_t now=millis();
-  BleLink::passSend(BattlePass::status(attached,battery.valid(now)?battery.percent:-1,s.best,s.total,id));
+  BleLink::passSend(BattlePass::status(attached,battery.valid(now)?battery.percent:-1,s.best,s.total,id,button));
 }
 // The last 50 launches and the latest one's curve. No launch yet: nothing,
 // since apps refuse an empty set.
@@ -1485,6 +1492,24 @@ LOOP_HELPER static void tick(uint32_t now) {
   const auto s=shots();
   if(status)sendStatus(false,s);
   if(all)sendShots(s);
+}
+// The button follows A on the Beyblade X page; an app hears each change at
+// once, as the real pass's status changes while its button is held.
+LOOP_HELPER static void tickButton(bool buttonsFresh,bool onPage) {
+  const bool held=onPage && (buttonsFresh?M5.BtnA.isPressed():button);
+  if(held!=button) {
+    button=held;dirty=true;
+    if(!tournamentMode && BleLink::passListening())sendStatus(false,shots());
+  }
+  if(!onPage)return;
+  const uint32_t key=uint32_t(BleLink::passListening())|uint32_t(BleLink::connected())<<1|uint32_t(shots().count)<<2;
+  if(key!=shownKey){shownKey=key;dirty=true;}
+}
+LOOP_HELPER static ControlsUI::PassView view() {
+  ControlsUI::PassView v;
+  v.on=bluetoothOn;v.app=BleLink::passListening();v.phone=BleLink::connected();v.button=button;v.tournament=tournamentMode;
+  v.waiting=shots().count;
+  return v;
 }
 }
 LOOP_HELPER static void logLaunchMetrics(const Snapshot &s) {
@@ -3438,6 +3463,7 @@ void loop() {
   if(BleLink::tick(millis(),bluetoothAtBoot,s.phase==AnalogTachometer::Phase::Launch))dirty=true;
   if(BleLink::takeBondsChanged()){settingsSave.mark(SettingsSave::Bonds);dirty=true;}
   BattlePassFeed::tick(millis());
+  BattlePassFeed::tickButton(buttonsFresh,controls.page==Controls::Page::BeybladeX);
   BleCommands::tickLiveOrientation(millis(),s);
   restartForBluetooth(millis(),s);
   if(buttonsFresh && heldButtons.use(millis(),M5.BtnA.isPressed() || M5.BtnB.isPressed(),M5.BtnA.wasReleased() || M5.BtnB.wasReleased()))

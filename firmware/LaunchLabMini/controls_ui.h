@@ -165,9 +165,48 @@ inline void bluetoothPage(lgfx::LGFXBase &g,unsigned row,bool on,bool connected,
   g.drawString(!on?"Radio off":connected?"Phone connected":"No phone connected",cx,97,1);
   char line[24];snprintf(line,sizeof(line),"%d phone%s paired",bonds,bonds==1?"":"s");
   g.setTextColor(colors.muted,colors.background);g.drawString(line,cx,109,1);
-  choice(1,128,24,"Forget phones",nullptr);
-  choice(2,160,24,"Back",nullptr);
-  footer(g,row==0?(on?"A Turn off  B Next":"A Turn on  B Next"):row==1?"A Open  B Next":"A Back  B Next");
+  choice(1,128,24,"Beyblade X",nullptr);
+  choice(2,160,24,"Forget phones",nullptr);
+  choice(3,192,24,"Back",nullptr);
+  footer(g,row==0?(on?"A Turn off  B Next":"A Turn on  B Next"):row<3?"A Open  B Next":"A Back  B Next");
+}
+// What the Beyblade X page shows: the Battle Pass profile as an app sees it.
+struct PassView {
+  bool on=false;          // Bluetooth on
+  bool app=false;         // an app subscribed to the Battle Pass profile
+  bool phone=false;       // any phone on the link
+  bool button=false;      // A held: the pass's button
+  bool tournament=false;  // tournament mode hides RPM, so the pass tells nothing
+  unsigned waiting=0;     // launches an app has not yet confirmed (0x75)
+  unsigned synced=0;      // launches the last sync confirmed, 0 for none yet
+};
+// The Beyblade X page (Battle Pass profile, docs/BLE_BATTLE_PASS.md): whether
+// an app is here, A held as the pass's button, which apps ask for to register
+// a pass, and how many launches wait for the next sync.
+inline void beybladeX(lgfx::LGFXBase &g,const PassView &v) {
+  heading(g,"Beyblade X");
+  const int cx=g.width()/2;
+  g.setTextColor(!v.on || v.tournament?colors.warning:v.app?colors.ready:colors.muted,colors.background);
+  g.drawString(!v.on?"Bluetooth is off":v.tournament?"Tournament: no RPM":v.app?"App connected":v.phone?"Phone connected":"Waiting for app",cx,34,1);
+  // The button: filled while held.
+  const int by=96,radius=34;
+  if(v.button)g.fillCircle(cx,by,radius,colors.accent);
+  else g.drawCircle(cx,by,radius,colors.accent);
+  g.setTextColor(v.button?colors.background:colors.accent,v.button?colors.accent:colors.background);
+  g.drawString("PASS",cx,by-8,2);
+  g.setTextColor(v.button?colors.background:colors.muted,v.button?colors.accent:colors.background);
+  g.drawString(v.button?"pressed":"hold A",cx,by+10,1);
+  g.setTextColor(colors.muted,colors.background);
+  g.drawString("To register a pass,",cx,146,1);
+  g.drawString("hold A when asked",cx,158,1);
+  char line[24];
+  snprintf(line,sizeof(line),"To sync: %u",v.waiting);
+  g.setTextColor(colors.text,colors.background);g.drawString(line,cx,182,1);
+  if(v.synced) {
+    snprintf(line,sizeof(line),"Last sync: %u",v.synced);
+    g.setTextColor(colors.ready,colors.background);g.drawString(line,cx,196,1);
+  }
+  footer(g,"Hold A Button  B Back");
 }
 // Forget phones: chosen like New session, since it needs the phone paired again.
 inline void forgetPhones(lgfx::LGFXBase &g,bool forget) {

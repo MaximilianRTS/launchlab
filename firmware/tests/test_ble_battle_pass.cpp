@@ -61,6 +61,10 @@ int main() {
     assert(status(false,100,0,0,id)[3]==0x00 && status(false,100,0,0,id)[4]==250);
     assert(status(false,-1,0,0,id)[4]==0 && status(false,250,0,0,id)[4]==250);  // unknown reads empty; never past full
     App app;app.notify(p);assert(app.attached && app.battery==80 && app.best==12345 && app.total==678);
+    // The button, held: 0x10 whether or not a top is on, the rest unchanged.
+    const Packet held=status(false,80,12345,678,id,true);
+    assert(held[3]==0x10 && status(true,80,12345,678,id,true)[3]==0x10);
+    for(unsigned i=0;i<BYTES;++i)if(i!=3)assert(held[i]==p[i]);
   }
   // Shoot power is RPM in 16 bits, and a curve point is the turn's period.
   assert(shootPower(6512.4f)==6512 && shootPower(6512.6f)==6513 && shootPower(0)==0 && shootPower(-5)==0 && shootPower(1e9f)==65535);
