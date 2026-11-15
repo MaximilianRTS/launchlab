@@ -127,6 +127,7 @@ struct {struct {unsigned brightness=0,rotation=0;void setBrightness(unsigned v){
 static Controls::State controls;static SettingsSave settingsSave;
 static bool motionPending=false,settingsSaveError=false,restorePreview=false,displayFlipped=false,dirty=false,extPower=false,shakeToWake=ShakeWakeSetting::DEFAULT_ON,
   batteryIcon=BatteryIconSetting::DEFAULT_ON,bluetoothOn=BluetoothSetting::DEFAULT_ON;
+static uint32_t passConfirmed=0;static constexpr const char *PASS_CONFIRMED_KEY="bp_confirmed";
 static bool saveError=false,wipeCheckpointHeld=false,orphanSeen=false;
 static uint8_t brightnessPercent=Brightness::DEFAULT_PERCENT;static uint32_t orphanSince=0;
 static constexpr uint32_t ORPHAN_CHECKPOINT_MS=1000,HISTORY_COALESCE_MS=10000,HISTORY_SAVE_RETRY_MS=5000;

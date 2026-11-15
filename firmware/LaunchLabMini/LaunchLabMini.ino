@@ -178,6 +178,11 @@ static constexpr uint32_t HISTORY_SAVE_RETRY_MS=5000;
 static uint32_t lastAcceptedAt=0,historyPendingSince=0;
 static bool screenReady=false;
 static bool diagnostics=false,extPower=false,stress=false,dirty=true;
+// The Battle Pass profile: the launch number a Beyblade X app's last clear
+// (0x75) confirmed, saved, and how many launches that clear took (0 none
+// since boot). The app has every launch up to it; the pass lists the rest.
+static uint32_t passConfirmed=0,passLastSync=0;
+static constexpr const char *PASS_CONFIRMED_KEY="bp_confirmed";
 static uint32_t lastDraw=0,lastStatus=0,lastRevision=0,maxDrawUs=0,maxEffectUs=0,uiStalls=0;
 #if LAUNCHLAB_HIL
 // HIL only: each recap effect pass since the last E preview (elapsed ms, us),
@@ -1352,6 +1357,8 @@ static void writeSettings() {
   if((items&SettingsSave::Bluetooth) && BluetoothSetting::save(prefs,bluetoothOn))saved|=SettingsSave::Bluetooth;
   if((items&SettingsSave::Bonds) && BleLink::saveBonds(prefs))saved|=SettingsSave::Bonds;
   if((items&SettingsSave::Name) && BleLink::saveName(prefs))saved|=SettingsSave::Name;
+  if((items&SettingsSave::PassConfirmed) && prefs.putBytes(PASS_CONFIRMED_KEY,&passConfirmed,sizeof(passConfirmed))==sizeof(passConfirmed))
+    saved|=SettingsSave::PassConfirmed;
   if(items&SettingsSave::Mount) {
     bool current=liveMount==mountMode;
     if(!current && imuAcquisition.setMount(mountMode)) {
@@ -1455,13 +1462,15 @@ static bool button=false;
 static uint32_t shownKey=0;
 LOOP_HELPER static BattlePass::Shots shots() {
   BattlePass::Shots out;
-  const unsigned kept=practice.size(),listed=std::min<unsigned>(kept,BattlePass::SHOTS);
+  const auto *latest=practice.recent();
+  const uint32_t open=BattlePass::unconfirmed(latest?latest->number:0,passConfirmed);
+  const unsigned kept=practice.size(),listed=unsigned(std::min<uint32_t>(std::min<uint32_t>(kept,BattlePass::SHOTS),open));
   for(unsigned i=listed;i>0;--i)out.add(BattlePass::shootPower(practice.recent(i-1)->rpm));
   float best=0;for(float rpm:personalBests.rpm)best=std::max(best,rpm);
   for(unsigned i=0;i<kept;++i)best=std::max(best,practice.recent(i)->rpm);
   out.best=BattlePass::shootPower(best);
-  const auto *last=practice.recent();
-  out.total=uint16_t(std::min<uint32_t>(65535,last?last->number:0));
+  // The count since the app's last clear, as the real pass counts from 0 again.
+  out.total=uint16_t(std::min<uint32_t>(65535,open));
   return out;
 }
 LOOP_HELPER static void sendStatus(bool attached,const BattlePass::Shots &s) {
@@ -1485,11 +1494,29 @@ LOOP_HELPER static void launched() {
   const auto s=shots();
   BleLink::passClear();sendStatus(true,s);sendStatus(false,s);sendShots(s);
 }
-// What an app asked for since the last pass of the loop.
+// What an app asked for since the last pass of the loop. A clear confirms
+// every launch so far: they leave the list, the count starts at 0 again and
+// the number is saved. A power-off ends the link once its answer has gone.
 LOOP_HELPER static void tick(uint32_t now) {
   const bool status=BleLink::takePassStatus(now),all=BleLink::takePassShots();
-  if((!status && !all) || tournamentMode)return;
+  const bool forget=BleLink::takePassClear(),off=BleLink::takePassOff();
+  if(off)BleLink::passPowerOff(now);
+  if((!status && !all && !forget) || tournamentMode)return;
+  if(forget) {
+    const auto *latest=practice.recent();
+    const uint32_t number=latest?latest->number:0;
+    passLastSync=shots().count;
+    Serial.printf("BATTLE_PASS_CLEAR confirmed=%lu listed=%lu\n",(unsigned long)number,(unsigned long)passLastSync);
+    if(number!=passConfirmed){passConfirmed=number;settingsSave.mark(SettingsSave::PassConfirmed);}
+    dirty=true;
+  }
   const auto s=shots();
+  if(forget) {
+    // A1, the status, and the list, empty now: what the real pass answers.
+    BattlePass::Packet list[8];BattlePass::shots(s,list);
+    BleLink::passSend(BattlePass::cleared());sendStatus(false,s);
+    for(const auto &packet:list)BleLink::passSend(packet);
+  }
   if(status)sendStatus(false,s);
   if(all)sendShots(s);
 }
@@ -1502,13 +1529,13 @@ LOOP_HELPER static void tickButton(bool buttonsFresh,bool onPage) {
     if(!tournamentMode && BleLink::passListening())sendStatus(false,shots());
   }
   if(!onPage)return;
-  const uint32_t key=uint32_t(BleLink::passListening())|uint32_t(BleLink::connected())<<1|uint32_t(shots().count)<<2;
+  const uint32_t key=uint32_t(BleLink::passListening())|uint32_t(BleLink::connected())<<1|uint32_t(passLastSync)<<2|uint32_t(shots().total)<<12;
   if(key!=shownKey){shownKey=key;dirty=true;}
 }
 LOOP_HELPER static ControlsUI::PassView view() {
   ControlsUI::PassView v;
   v.on=bluetoothOn;v.app=BleLink::passListening();v.phone=BleLink::connected();v.button=button;v.tournament=tournamentMode;
-  v.waiting=shots().count;
+  v.waiting=BattlePass::unconfirmed(practice.recent()?practice.recent()->number:0,passConfirmed);v.synced=passLastSync;
   return v;
 }
 }
@@ -2875,6 +2902,7 @@ void setup() {
   if(!Brightness::load(prefs,brightnessPercent))
     Serial.printf("BRIGHTNESS_SETTING_NOTICE invalid_saved_value_using_default_pct=%u\n",unsigned(Brightness::DEFAULT_PERCENT));
   BleLink::bondPrefs=&prefs;BleLink::loadName(prefs);
+  if(prefs.getBytesLength(PASS_CONFIRMED_KEY)==sizeof(passConfirmed))prefs.getBytes(PASS_CONFIRMED_KEY,&passConfirmed,sizeof(passConfirmed));
   if(!BluetoothSetting::load(prefs,bluetoothOn))Serial.println("BLUETOOTH_SETTING_NOTICE invalid_saved_value_retained_using_off_default");
   bluetoothAtBoot=bluetoothOn;
   if(!ShakeWakeSetting::load(prefs,shakeToWake))Serial.println("SHAKE_WAKE_SETTING_NOTICE invalid_saved_value_retained_using_on");

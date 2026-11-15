@@ -55,6 +55,8 @@ static BattlePass::Requests passRequests;
 static BattlePass::Outbox passOutbox;
 static volatile bool passSubscribed=false;
 static uint32_t passPackets=0;
+// A power-off (0x63): the link ends POWER_OFF_MS after it, once what waits has gone. 0 none.
+static uint32_t passOffAt=0;
 static Handler handler=nullptr;
 static uint8_t *replyBuffer=nullptr;
 static volatile bool linkUp=false,started=false,initFailed=false,commandWaiting=false;
@@ -337,6 +339,10 @@ inline State state(bool enabled) {
 inline bool passListening(){return connected() && passSubscribed;}
 inline bool takePassStatus(uint32_t now){return passRequests.takeStatus(now) && passListening();}
 inline bool takePassShots(){return passRequests.takeShots() && passListening();}
+inline bool takePassClear(){return passRequests.takeClear() && passListening();}
+inline bool takePassOff(){return passRequests.takeOff() && passListening();}
+// The pass switches itself off: the link ends shortly, as the real one's does.
+inline void passPowerOff(uint32_t now){passOffAt=(now+BattlePass::POWER_OFF_MS)|1;}
 inline void passClear(){passOutbox.clear();}
 inline void passSend(const BattlePass::Packet &packet){if(passListening())passOutbox.push(packet);}
 
@@ -425,6 +431,10 @@ inline bool tick(uint32_t now,bool enabled,bool busy) {
     } else if(!linkUp && !ble_gap_adv_active() && now-lastAdvertiseTry>=ADVERTISE_RETRY_MS) {
       lastAdvertiseTry=now;advertising=BLEDevice::getAdvertising()->start();
     }
+    // A Battle Pass power-off ends the link once its packets have gone; a new
+    // link starts with none pending.
+    if(!linkUp)passOffAt=0;
+    else if(passOffAt && passOutbox.empty() && int32_t(now-passOffAt)>=0){passOffAt=0;server->disconnect(server->getConnId());}
     // One phone at a time; the stack would otherwise accept a second link.
     if(linkUp && ble_gap_adv_active())BLEDevice::getAdvertising()->stop();
   }

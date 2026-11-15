@@ -134,10 +134,22 @@ int main() {
     assert(!r.takeStatus(0) && !r.takeShots());
     r.command(ASK_STATUS);assert(r.takeStatus(0) && !r.takeStatus(0) && !r.takeShots());
     r.command(ASK_SHOTS);assert(r.takeShots() && !r.takeShots() && !r.takeStatus(0));
-    for(unsigned byte=0;byte<256;++byte)if(byte!=ASK_STATUS && byte!=ASK_SHOTS)r.command(uint8_t(byte));
-    assert(!r.takeStatus(0) && !r.takeShots());  // 0x75 and 0x61 among them: never acted on
+    for(unsigned byte=0;byte<256;++byte)if(byte!=ASK_STATUS && byte!=ASK_SHOTS && byte!=CLEAR && byte!=POWER_OFF)r.command(uint8_t(byte));
+    assert(!r.takeStatus(0) && !r.takeShots() && !r.takeClear() && !r.takeOff());  // 0x61 among them: never acted on
+    // 0x75 the clear, 0x63 the power-off, each taken once; a link's end forgets both.
+    r.command(CLEAR);assert(r.takeClear() && !r.takeClear() && !r.takeShots() && !r.takeOff());
+    r.command(POWER_OFF);assert(r.takeOff() && !r.takeOff() && !r.takeClear());
+    r.command(CLEAR);r.command(POWER_OFF);r.clear();assert(!r.takeClear() && !r.takeOff());
     r.subscribed(500);assert(!r.takeStatus(500+GREETING_MS-1) && r.takeStatus(500+GREETING_MS) && !r.takeStatus(5000));
     r.command(ASK_SHOTS);r.subscribed(1);r.clear();assert(!r.takeShots() && !r.takeStatus(1000));
   }
+  // A clear's answer: A1 alone, then the status and the list the app reads.
+  {
+    const Packet p=cleared();assert(p[0]==0xa1);for(unsigned i=1;i<BYTES;++i)assert(!p[i]);
+    App app;app.notify(p);assert(!app.statuses && !app.sets && !app.errors);
+  }
+  // What an app has not confirmed: the launches since its last clear's number.
+  assert(unconfirmed(196,0)==196 && unconfirmed(196,190)==6 && unconfirmed(196,196)==0);
+  assert(unconfirmed(4,196)==4);  // the history wiped: its launches count again
   std::cout<<"Battle Pass profile: status, the last 50 launches with their checksum, the curve, the order and pace after a launch, and the commands, as an app reads them\n";
 }
