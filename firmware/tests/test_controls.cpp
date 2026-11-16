@@ -27,14 +27,14 @@ int main() {
   assert(!editable(unsigned(Setting::WipeAll)) && !editable(unsigned(Setting::About)) && editable(unsigned(Setting::BatteryIcon)));
   assert(!editable(SETTING_COUNT));
   // The corner battery shows on the Menu and Settings pages only, not Main (owner, 2026-11-05).
-  for(unsigned page=0;page<=unsigned(Page::EnableBluetooth);++page) {
+  for(unsigned page=0;page<=unsigned(Page::BeybladeX);++page) {
     const Page p=Page(page);
     const bool menus=p==Page::Menu || p==Page::HistoryMenu || p==Page::Settings || p==Page::Edit || p==Page::About;
     assert(showsCornerBattery(p)==menus);
   }
   assert(!showsCornerBattery(Page::Main) && !showsCornerBattery(Page::History) && !showsCornerBattery(Page::Battery));
   // Main shows it while the unit charges, and only Main adds that (owner, 2026-11-11).
-  for(unsigned page=0;page<=unsigned(Page::EnableBluetooth);++page)assert(showsChargingBattery(Page(page))==(Page(page)==Page::Main));
+  for(unsigned page=0;page<=unsigned(Page::BeybladeX);++page)assert(showsChargingBattery(Page(page))==(Page(page)==Page::Main));
   for(unsigned row=0;row<SETTING_COUNT;++row) {
     if(!editable(row))continue;
     s.setting=row;assert(s.tapA()==Effect::BeginEdit && s.page==Page::Edit);
@@ -94,7 +94,7 @@ int main() {
   assert(!gesture.click(true,false,false));assert(!gesture.click(false,true,false));
   assert(!gesture.click(false,false,true));assert(!gesture.click(true,false,false));
   assert(gesture.click(false,false,true));
-  for(unsigned page=0;page<=unsigned(Page::EnableBluetooth);++page)
+  for(unsigned page=0;page<=unsigned(Page::BeybladeX);++page)
     for(unsigned menu=0;menu<MENU_COUNT;++menu)for(unsigned setting=0;setting<=SETTING_COUNT;++setting)for(uint8_t view=0;view<2;++view) {
       State before;before.page=Page(page);before.menu=menu;before.setting=setting;before.history=2;
       State after;uint8_t saved=99;
@@ -104,7 +104,7 @@ int main() {
       // no page value beyond Wipe is ever saved. Bluetooth's editor has no
       // Settings row, so it wakes on Back.
       const bool wear=before.page==Page::WearCheck,mic=before.page==Page::MicRpm,about=before.page==Page::About;
-      const bool bluetooth=before.page==Page::Bluetooth || before.page==Page::ForgetPhones || before.page==Page::EnableBluetooth;
+      const bool bluetooth=before.page==Page::Bluetooth || before.page==Page::ForgetPhones || before.page==Page::EnableBluetooth || before.page==Page::BeybladeX;
       assert(after.page==((before.page==Page::Edit || before.page==Page::Wipe || about)?Page::Settings:wear || mic || bluetooth?Page::Menu:before.page));
       assert(after.menu==(wear?WEAR_ROW:mic?MIC_ROW:bluetooth?BLUETOOTH_ROW:menu) && after.history==2 && saved==view);
       assert(after.setting==(about?unsigned(Setting::About):setting==unsigned(Setting::Bluetooth)?SETTING_COUNT:setting));
@@ -157,7 +157,7 @@ int main() {
     // The Bluetooth prototype's own layouts (0.20.5-sticks3-ble) are not read.
     assert(!decodeWake(0x4e600000u|uint32_t(Page::Menu),out,saved) && !decodeWake(0x4e610000u|uint32_t(Page::Menu),out,saved));
   }
-  // The Bluetooth page: from its menu row; B walks On/Off, Forget phones, Back.
+  // The Bluetooth page: from its menu row; B walks On/Off, Beyblade X, Forget phones, Back.
   // Off, A on its row asks first: it is experimental, Cancel is chosen, and only
   // Turn on with A turns it on. On, A turns it off at one press. Hold B returns;
   // Forget takes a choice, and comes back here.
@@ -177,7 +177,15 @@ int main() {
     p.page=Page::EnableBluetooth;p.enableChosen=true;assert(p.tapA()==Effect::None && p.page==Page::Bluetooth);
     assert(!decodeWake(WAKE_MAGIC|uint32_t(Page::Bluetooth),out,saved) && !decodeWake(WAKE_MAGIC|uint32_t(Page::ForgetPhones),out,saved));
     assert(decodeWake(encodeWake(p,0),out,saved) && out.page==Page::Menu && out.menu==BLUETOOTH_ROW);
+    // Beyblade X: A is the pass's button there, so a tap changes nothing; B
+    // or hold B goes back to its row. It wakes on the Bluetooth menu row.
     assert(p.tapB()==Effect::None && p.bluetoothRow==1);
+    assert(p.tapA()==Effect::None && p.page==Page::BeybladeX && !p.autoRecap());
+    assert(p.tapA()==Effect::None && p.page==Page::BeybladeX && p.holdA()==Effect::None && p.page==Page::BeybladeX);
+    assert(decodeWake(encodeWake(p,0),out,saved) && out.page==Page::Menu && out.menu==BLUETOOTH_ROW);
+    assert(p.tapB()==Effect::None && p.page==Page::Bluetooth && p.bluetoothRow==1);
+    p.tapA();assert(p.holdB()==Effect::None && p.page==Page::Bluetooth && p.bluetoothRow==1);
+    assert(p.tapB()==Effect::None && p.bluetoothRow==2);
     assert(p.tapA()==Effect::None && p.page==Page::ForgetPhones && !p.forgetChosen);
     assert(decodeWake(encodeWake(p,0),out,saved) && out.page==Page::Menu && out.menu==BLUETOOTH_ROW);
     assert(p.tapA()==Effect::None && p.page==Page::Bluetooth); // Cancel by default.
@@ -185,7 +193,7 @@ int main() {
     assert(p.holdB()==Effect::None && p.page==Page::Bluetooth); // Hold B never forgets.
     p.tapA();assert(!p.forgetChosen);p.tapB();
     assert(p.tapA()==Effect::ForgetPhones && p.page==Page::Bluetooth);
-    assert(p.tapB()==Effect::None && p.bluetoothRow==2);
+    assert(p.tapB()==Effect::None && p.bluetoothRow==3);
     assert(p.tapA()==Effect::None && p.page==Page::Menu);
     p.tapA();assert(p.holdB()==Effect::None && p.page==Page::Menu);
     // Not a Settings row; its value is the protocol's id and stays.

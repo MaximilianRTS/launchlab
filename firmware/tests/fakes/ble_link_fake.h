@@ -27,7 +27,7 @@ inline void status(){}
 template<class Canvas>inline void drawIcon(Canvas &,uint16_t,uint16_t,uint16_t,uint16_t){}
 }
 namespace BattlePass {inline constexpr char NAME[]="BEYBLADE_TOOL01";}
-namespace BattlePassFeed {inline void tick(uint32_t){}inline void launched(){}}
+namespace BattlePassFeed {inline void tick(uint32_t){}inline void launched(){}inline void tickButton(bool,bool){}}
 namespace BleCommands {
 inline int32_t run(uint8_t,const uint8_t *,size_t,uint8_t *,size_t){return -4;}
 template<class State>inline bool answerPairing(bool,const State &){return false;}

@@ -70,6 +70,7 @@ static StartMarkReference::Reference startMarks;static bool startMarksDirty=fals
 static uint8_t unusedWakes=0;
 static bool tournamentMode=false,historyPage=false,dirty=false,diagnostics=false,demo=false,motionDemo=false,motionPending=false,settingsSaveError=false,restorePreview=false,displayFlipped=false,shakeToWake=ShakeWakeSetting::DEFAULT_ON,
   batteryIcon=BatteryIconSetting::DEFAULT_ON,bluetoothOn=BluetoothSetting::DEFAULT_ON;static bool bluetoothAtBoot=false;
+static uint32_t passConfirmed=0;static constexpr const char *PASS_CONFIRMED_KEY="bp_confirmed";
 static uint8_t brightnessPercent=Brightness::DEFAULT_PERCENT;
 static uint32_t historyOffset=0,newSessionAt=0,tournamentHintUntil=0;
 enum class TournamentView:uint8_t{RecordingOnly,Rpm};

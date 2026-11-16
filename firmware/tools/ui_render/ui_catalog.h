@@ -36,6 +36,7 @@ inline constexpr Screen SCREENS[]={
   {"settings","Settings"},{"settings-appearance","Settings, appearance"},{"settings-more","Settings, wipe and back"},{"about","About"},
   {"menu-bluetooth","Menu, Bluetooth"},{"bluetooth","Bluetooth, off"},{"bluetooth-enable","Bluetooth, experimental notice"},{"bluetooth-on","Bluetooth, on with a phone"},
   {"bluetooth-forget","Bluetooth, forget phones"},{"bluetooth-pair","Bluetooth, pairing number"},
+  {"bluetooth-beyblade-x","Bluetooth, Beyblade X page"},{"bluetooth-beyblade-x-held","Bluetooth, Beyblade X, pass button held"},
   {"theme-editor","Theme editor"},{"effect-editor","Best effect editor"},{"celebrate-editor","Celebrate editor"},
   {"battery-icon-editor","Battery icon editor, Off"},
   {"history","Launch history"},{"pull-trend","Pull trend"},{"session-trend","Session trend"},{"history-empty","History, empty"},
@@ -235,6 +236,10 @@ inline void draw(lgfx::LGFX_Sprite &g,unsigned index,const Look &look,bool flip)
     else if(is("bluetooth-on"))ControlsUI::bluetoothPage(g,1,true,true,"BEYBLADE_TOOL01",1);
     else if(is("bluetooth-forget"))ControlsUI::forgetPhones(g,false);
     else if(is("bluetooth-pair"))ControlsUI::comparison(g,123456,false);
+    else if(is("bluetooth-beyblade-x") || is("bluetooth-beyblade-x-held")) {
+      ControlsUI::PassView v;v.on=v.app=v.phone=true;v.button=is("bluetooth-beyblade-x-held");v.waiting=3;v.synced=2;
+      ControlsUI::beybladeX(g,v);
+    }
     else if(prefix("menu")){state.menu=is("menu-settings")?Controls::SETTINGS_ROW:is("menu-wear-check")?Controls::WEAR_ROW:is("menu-bluetooth")?Controls::BLUETOOTH_ROW:0;ControlsUI::list(g,"Menu",ControlsUI::MENU,Controls::MENU_COUNT,state.menu,Controls::MENU_GROUPS);}
     else if(is("history-menu"))ControlsUI::list(g,"History",ControlsUI::HISTORY,4,0);
     else if(is("settings")){state.setting=0;ControlsUI::settings(g,state,values);}

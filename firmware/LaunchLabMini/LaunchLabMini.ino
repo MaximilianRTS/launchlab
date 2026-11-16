@@ -178,6 +178,11 @@ static constexpr uint32_t HISTORY_SAVE_RETRY_MS=5000;
 static uint32_t lastAcceptedAt=0,historyPendingSince=0;
 static bool screenReady=false;
 static bool diagnostics=false,extPower=false,stress=false,dirty=true;
+// The Battle Pass profile: the launch number a Beyblade X app's last clear
+// (0x75) confirmed, saved, and how many launches that clear took (0 none
+// since boot). The app has every launch up to it; the pass lists the rest.
+static uint32_t passConfirmed=0,passLastSync=0;
+static constexpr const char *PASS_CONFIRMED_KEY="bp_confirmed";
 static uint32_t lastDraw=0,lastStatus=0,lastRevision=0,maxDrawUs=0,maxEffectUs=0,uiStalls=0;
 #if LAUNCHLAB_HIL
 // HIL only: each recap effect pass since the last E preview (elapsed ms, us),
@@ -923,6 +928,8 @@ static const char *celebrationBadge() {
   if(bestEffect.best())return "NEW BEST";
   Milestones::milestoneText(text,sizeof(text),bestEffect.milestone());return text;
 }
+// The Beyblade X page's view, from the Battle Pass feed further down.
+namespace BattlePassFeed {LOOP_HELPER static ControlsUI::PassView view();}
 LOOP_HELPER static void draw(const Snapshot &s) {
   const int64_t started=esp_timer_get_time();
   const Palette::Colors colors=ui();
@@ -979,6 +986,18 @@ LOOP_HELPER static void draw(const Snapshot &s) {
       case Controls::Page::Bluetooth:ControlsUI::bluetoothPage(view,controls.bluetoothRow,bluetoothOn,BleLink::connected(),BattlePass::NAME,BleLink::bondCount());break;
       case Controls::Page::ForgetPhones:ControlsUI::forgetPhones(view,controls.forgetChosen);break;
       case Controls::Page::EnableBluetooth:ControlsUI::enableBluetooth(view,controls.enableChosen);break;
+      case Controls::Page::BeybladeX:
+        // After a pull, its result as Main shows it, until it closes by itself;
+        // A held stays the pass's button throughout.
+        if(launchFeedback.shown()) {
+          MotionUI::feedback(view,motionDemo?demoMotion:latestMotion,
+            motionPending && !motionDemo,motionDemo,MotionReplay::playbackProgress(motionDemo?demoMotion:latestMotion,
+              launchFeedback.position(replayFrameElapsed)),visibleDisplayFlipped(),colors,celebrationBadge(),
+            motionDemo?MotionUI::demoCurve(demoMotion.rpm):latestCurve);
+          ControlsUI::footer(view,"Hold A Button  B Back");
+        }
+        else ControlsUI::beybladeX(view,BattlePassFeed::view());
+        break;
       default:PracticeUI::draw(view,demo?demoPractice:practice,historyView,historyOffset,demo,colors);break;
     }
   } else if(launchFeedback.shown()) {
@@ -1349,6 +1368,8 @@ static void writeSettings() {
   if((items&SettingsSave::Bluetooth) && BluetoothSetting::save(prefs,bluetoothOn))saved|=SettingsSave::Bluetooth;
   if((items&SettingsSave::Bonds) && BleLink::saveBonds(prefs))saved|=SettingsSave::Bonds;
   if((items&SettingsSave::Name) && BleLink::saveName(prefs))saved|=SettingsSave::Name;
+  if((items&SettingsSave::PassConfirmed) && prefs.putBytes(PASS_CONFIRMED_KEY,&passConfirmed,sizeof(passConfirmed))==sizeof(passConfirmed))
+    saved|=SettingsSave::PassConfirmed;
   if(items&SettingsSave::Mount) {
     bool current=liveMount==mountMode;
     if(!current && imuAcquisition.setMount(mountMode)) {
@@ -1446,28 +1467,34 @@ static void commitSetting() {
 // app for the BEYBATTLE PASS is told. Tournament mode hides RPM, so it tells
 // nothing then, like the LaunchLab profile.
 namespace BattlePassFeed {
+// A held on the Beyblade X page: the pass's button, which apps ask for to
+// register a pass. What the Beyblade X page last showed, so it redraws on a change.
+static bool button=false;
+static uint32_t shownKey=0;
 LOOP_HELPER static BattlePass::Shots shots() {
   BattlePass::Shots out;
-  const unsigned kept=practice.size(),listed=std::min<unsigned>(kept,BattlePass::SHOTS);
+  const auto *latest=practice.recent();
+  const uint32_t open=BattlePass::unconfirmed(latest?latest->number:0,passConfirmed);
+  const unsigned kept=practice.size(),listed=unsigned(std::min<uint32_t>(std::min<uint32_t>(kept,BattlePass::SHOTS),open));
   for(unsigned i=listed;i>0;--i)out.add(BattlePass::shootPower(practice.recent(i-1)->rpm));
   float best=0;for(float rpm:personalBests.rpm)best=std::max(best,rpm);
   for(unsigned i=0;i<kept;++i)best=std::max(best,practice.recent(i)->rpm);
   out.best=BattlePass::shootPower(best);
-  const auto *last=practice.recent();
-  out.total=uint16_t(std::min<uint32_t>(65535,last?last->number:0));
+  // The count since the app's last clear, as the real pass counts from 0 again.
+  out.total=uint16_t(std::min<uint32_t>(65535,open));
   return out;
 }
 LOOP_HELPER static void sendStatus(bool attached,const BattlePass::Shots &s) {
   uint8_t id[6]={};esp_efuse_mac_get_default(id);
   const uint32_t now=millis();
-  BleLink::passSend(BattlePass::status(attached,battery.valid(now)?battery.percent:-1,s.best,s.total,id));
+  BleLink::passSend(BattlePass::status(attached,battery.valid(now)?battery.percent:-1,s.best,s.total,id,button));
 }
 // The last 50 launches and the latest one's curve. No launch yet: nothing,
 // since apps refuse an empty set.
 LOOP_HELPER static void sendShots(const BattlePass::Shots &s) {
   if(!s.count)return;
   BattlePass::Packet list[8],turns[4];
-  BattlePass::shots(s,list);BattlePass::curve(latestCurve.rpm,latestCurve.count,turns);
+  BattlePass::shots(s,list);BattlePass::curve(latestCurve.ms,latestCurve.rpm,latestCurve.count,turns);
   for(const auto &packet:list)BleLink::passSend(packet);
   for(const auto &packet:turns)BleLink::passSend(packet);
 }
@@ -1478,13 +1505,49 @@ LOOP_HELPER static void launched() {
   const auto s=shots();
   BleLink::passClear();sendStatus(true,s);sendStatus(false,s);sendShots(s);
 }
-// What an app asked for since the last pass of the loop.
+// What an app asked for since the last pass of the loop. A clear confirms
+// every launch so far: they leave the list, the count starts at 0 again and
+// the number is saved. A power-off ends the link once its answer has gone.
 LOOP_HELPER static void tick(uint32_t now) {
   const bool status=BleLink::takePassStatus(now),all=BleLink::takePassShots();
-  if((!status && !all) || tournamentMode)return;
+  const bool forget=BleLink::takePassClear(),off=BleLink::takePassOff();
+  if(off)BleLink::passPowerOff(now);
+  if((!status && !all && !forget) || tournamentMode)return;
+  if(forget) {
+    const auto *latest=practice.recent();
+    const uint32_t number=latest?latest->number:0;
+    passLastSync=shots().count;
+    Serial.printf("BATTLE_PASS_CLEAR confirmed=%lu listed=%lu\n",(unsigned long)number,(unsigned long)passLastSync);
+    if(number!=passConfirmed){passConfirmed=number;settingsSave.mark(SettingsSave::PassConfirmed);}
+    dirty=true;
+  }
   const auto s=shots();
+  if(forget) {
+    // A1, the status, and the list, empty now: what the real pass answers.
+    BattlePass::Packet list[8];BattlePass::shots(s,list);
+    BleLink::passSend(BattlePass::cleared());sendStatus(false,s);
+    for(const auto &packet:list)BleLink::passSend(packet);
+  }
   if(status)sendStatus(false,s);
   if(all)sendShots(s);
+}
+// The button follows A on the Beyblade X page; an app hears each change at
+// once, as the real pass's status changes while its button is held.
+LOOP_HELPER static void tickButton(bool buttonsFresh,bool onPage) {
+  const bool held=onPage && (buttonsFresh?M5.BtnA.isPressed():button);
+  if(held!=button) {
+    button=held;dirty=true;
+    if(!tournamentMode && BleLink::passListening())sendStatus(false,shots());
+  }
+  if(!onPage)return;
+  const uint32_t key=uint32_t(BleLink::passListening())|uint32_t(BleLink::connected())<<1|uint32_t(passLastSync)<<2|uint32_t(shots().total)<<12;
+  if(key!=shownKey){shownKey=key;dirty=true;}
+}
+LOOP_HELPER static ControlsUI::PassView view() {
+  ControlsUI::PassView v;
+  v.on=bluetoothOn;v.app=BleLink::passListening();v.phone=BleLink::connected();v.button=button;v.tournament=tournamentMode;
+  v.waiting=BattlePass::unconfirmed(practice.recent()?practice.recent()->number:0,passConfirmed);v.synced=passLastSync;
+  return v;
 }
 }
 LOOP_HELPER static void logLaunchMetrics(const Snapshot &s) {
@@ -1536,7 +1599,7 @@ static void browseOlder() {
 static void navigate(Controls::Effect effect,Controls::Page previous) {
   if(previous==Controls::Page::Wipe && controls.page!=previous)wipeConfirmation.cancel();
   if(previous!=controls.page || effect==Controls::Effect::Recap || effect==Controls::Effect::Tournament)bestEffect.clear();
-  if(previous==Controls::Page::Main && controls.page!=previous)launchFeedback.clear();
+  if((previous==Controls::Page::Main || previous==Controls::Page::BeybladeX) && controls.page!=previous)launchFeedback.clear();
   if(previous!=controls.page){diagnostics=false;motionDemo=false;demo=false;historyOffset=0;}
   switch(effect) {
     case Controls::Effect::Recap:toggleFeedback();break;
@@ -2850,6 +2913,7 @@ void setup() {
   if(!Brightness::load(prefs,brightnessPercent))
     Serial.printf("BRIGHTNESS_SETTING_NOTICE invalid_saved_value_using_default_pct=%u\n",unsigned(Brightness::DEFAULT_PERCENT));
   BleLink::bondPrefs=&prefs;BleLink::loadName(prefs);
+  if(prefs.getBytesLength(PASS_CONFIRMED_KEY)==sizeof(passConfirmed))prefs.getBytes(PASS_CONFIRMED_KEY,&passConfirmed,sizeof(passConfirmed));
   if(!BluetoothSetting::load(prefs,bluetoothOn))Serial.println("BLUETOOTH_SETTING_NOTICE invalid_saved_value_retained_using_off_default");
   bluetoothAtBoot=bluetoothOn;
   if(!ShakeWakeSetting::load(prefs,shakeToWake))Serial.println("SHAKE_WAKE_SETTING_NOTICE invalid_saved_value_retained_using_on");
@@ -3438,6 +3502,7 @@ void loop() {
   if(BleLink::tick(millis(),bluetoothAtBoot,s.phase==AnalogTachometer::Phase::Launch))dirty=true;
   if(BleLink::takeBondsChanged()){settingsSave.mark(SettingsSave::Bonds);dirty=true;}
   BattlePassFeed::tick(millis());
+  BattlePassFeed::tickButton(buttonsFresh,controls.page==Controls::Page::BeybladeX);
   BleCommands::tickLiveOrientation(millis(),s);
   restartForBluetooth(millis(),s);
   if(buttonsFresh && heldButtons.use(millis(),M5.BtnA.isPressed() || M5.BtnB.isPressed(),M5.BtnA.wasReleased() || M5.BtnB.wasReleased()))

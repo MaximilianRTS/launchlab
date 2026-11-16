@@ -9,7 +9,7 @@
 // after the visible state changes; setting writes only happen on Apply.
 namespace Controls {
 enum class Page:uint8_t {Main,Menu,HistoryMenu,History,Battery,Settings,Edit,NewSession,Tournament,Wipe,WearCheck,MicRpm,About,
-  Bluetooth,ForgetPhones,EnableBluetooth};
+  Bluetooth,ForgetPhones,EnableBluetooth,BeybladeX};
 enum class Effect:uint8_t {None,Recap,BeginEdit,Preview,Apply,CancelEdit,Older,NewSession,Tournament,BeginWipe,ConfirmWipe,CancelWipe,ForgetPhones,ToggleBluetooth};
 // The Menu, top to bottom, in three groups (0.20.9): what a session uses
 // (History, New session, Tournament), the tools (String wear check, Mic RPM),
@@ -63,7 +63,9 @@ struct State {
   bool startSession=false,forgetChosen=false,enableChosen=false;
   // Whether Bluetooth is on, kept current by the sketch: turning it on asks first.
   bool bluetoothOn=false;
-  // The Bluetooth page's row: 0 On/Off, 1 Forget phones, 2 Back.
+  // The Bluetooth page's row: 0 On/Off, 1 Beyblade X, 2 Forget phones, 3 Back.
+  // Beyblade X opens a page for the Battle Pass profile, where A held is the
+  // pass's button (apps want it pressed to register a pass) and B goes back.
   uint8_t bluetoothRow=0;
   // Valid custom theme slots (bit i: theme THEMES+i), kept current by the
   // sketch; Theme cycles through the built-ins and then these.
@@ -106,9 +108,11 @@ struct State {
       case Page::Bluetooth:
         // Turning it off is immediate; turning it on first says it is experimental.
         if(bluetoothRow==0){if(bluetoothOn)return Effect::ToggleBluetooth;page=Page::EnableBluetooth;enableChosen=false;}
-        else if(bluetoothRow==1){page=Page::ForgetPhones;forgetChosen=false;}
+        else if(bluetoothRow==1)page=Page::BeybladeX;
+        else if(bluetoothRow==2){page=Page::ForgetPhones;forgetChosen=false;}
         else page=Page::Menu;
         break;
+      case Page::BeybladeX:break;  // A is the pass's button here: held, not tapped
       case Page::ForgetPhones:page=Page::Bluetooth;return forgetChosen?Effect::ForgetPhones:Effect::None;
       case Page::EnableBluetooth:page=Page::Bluetooth;return enableChosen && !bluetoothOn?Effect::ToggleBluetooth:Effect::None;
     }
@@ -143,7 +147,8 @@ struct State {
       case Page::WearCheck:break;
       case Page::MicRpm:break;
       case Page::About:break;
-      case Page::Bluetooth:bluetoothRow=(bluetoothRow+1)%3;break;
+      case Page::Bluetooth:bluetoothRow=(bluetoothRow+1)%4;break;
+      case Page::BeybladeX:page=Page::Bluetooth;break;
       case Page::ForgetPhones:forgetChosen=!forgetChosen;break;
       case Page::EnableBluetooth:enableChosen=!enableChosen;break;
     }
@@ -156,7 +161,7 @@ struct State {
       case Page::History:page=Page::HistoryMenu;break;
       case Page::HistoryMenu:case Page::Battery:case Page::Settings:case Page::NewSession:case Page::WearCheck:case Page::Bluetooth:page=Page::Menu;break;
       case Page::MicRpm:page=Page::Menu;break;
-      case Page::ForgetPhones:case Page::EnableBluetooth:page=Page::Bluetooth;break;
+      case Page::ForgetPhones:case Page::EnableBluetooth:case Page::BeybladeX:page=Page::Bluetooth;break;
       case Page::Menu:page=Page::Main;break;
       case Page::Main:return recap?Effect::Recap:Effect::None;
       case Page::Tournament:break;
@@ -206,7 +211,7 @@ inline uint32_t encodeWake(State state,uint8_t tournamentView) {
   if(state.page==Page::WearCheck){state.page=Page::Menu;state.menu=WEAR_ROW;}
   if(state.page==Page::MicRpm){state.page=Page::Menu;state.menu=MIC_ROW;}  // the mic never starts on wake
   if(state.page==Page::About){state.page=Page::Settings;state.setting=uint8_t(Setting::About);}
-  if(state.page==Page::Bluetooth || state.page==Page::ForgetPhones || state.page==Page::EnableBluetooth){state.page=Page::Menu;state.menu=BLUETOOTH_ROW;}
+  if(state.page==Page::Bluetooth || state.page==Page::ForgetPhones || state.page==Page::EnableBluetooth || state.page==Page::BeybladeX){state.page=Page::Menu;state.menu=BLUETOOTH_ROW;}
   return WAKE_MAGIC|uint32_t(state.page)|(uint32_t(state.menu&7)<<4)|(uint32_t(state.menu>>3)<<14)|
     (uint32_t(state.history)<<7)|(uint32_t(state.setting)<<9)|(uint32_t(tournamentView)<<13);
 }

@@ -28,6 +28,10 @@ struct LGFXBase {
   void fillScreen(uint16_t){}
   void fillRoundRect(int x,int y,int w,int h,int,uint16_t){fillRect(x,y,w,h,0);}
   void drawRoundRect(int x,int y,int w,int h,int,uint16_t){fillRect(x,y,w,h,0);}
+  // Filled circles are counted: the Beyblade X page fills its button while held.
+  std::vector<std::array<int,2>> bubbles;
+  void drawCircle(int x,int y,int r,uint16_t){assert(x-r>=0 && x+r<135 && y-r>=0 && y+r<240);}
+  void fillCircle(int x,int y,int r,uint16_t){drawCircle(x,y,r,0);bubbles.push_back({x,y});}
   int textWidth(const char *text,const int *font){return int(std::strlen(text))*(*font==4?18:8);}
   // Font 2 is proportional: 8 px a glyph, but 5 for i, l, space and narrow
   // punctuation. Every glyph's estimate is at or above M5GFX Font2's own
@@ -220,10 +224,24 @@ int main() {
   }
   {lgfx::LGFXBase r;ControlsUI::restarting(r);assert(r.drew("Saving, restarting"));++renders;}
   // The Bluetooth page: every row and state fits, the longest name too.
-  for(const char *name:{"BEYBLADE_TOOL01"})for(unsigned row=0;row<3;++row)for(bool on:{false,true})for(bool linked:{false,true})for(int bonds:{0,1,3}) {
+  for(const char *name:{"BEYBLADE_TOOL01"})for(unsigned row=0;row<4;++row)for(bool on:{false,true})for(bool linked:{false,true})for(int bonds:{0,1,3}) {
     lgfx::LGFXBase g;ControlsUI::bluetoothPage(g,row,on,linked,name,bonds);
-    assert(g.footers==1 && g.drew("Appears as") && g.drew(name) && g.drew("Forget phones") && g.drew(on?"On, experimental":"Off"));++renders;
+    assert(g.footers==1 && g.drew("Appears as") && g.drew(name) && g.drew("Beyblade X") && g.drew("Forget phones") && g.drew(on?"On, experimental":"Off"));++renders;
   }
+  // The Beyblade X page: every state fits, the button filled while held, and
+  // the counts in words.
+  for(bool on:{false,true})for(bool app:{false,true})for(bool button:{false,true})for(bool tournament:{false,true})
+    for(unsigned waiting:{0u,1u,50u,65535u})for(unsigned synced:{0u,1u,50u}) {
+      ControlsUI::PassView v;v.on=on;v.app=app && on;v.phone=v.app;v.button=button;v.tournament=tournament;v.waiting=waiting;v.synced=synced;
+      lgfx::LGFXBase g;ControlsUI::beybladeX(g,v);
+      assert(g.footers==1 && g.drew("Beyblade X") && g.drew("PASS") && g.drew(button?"pressed":"hold A"));
+      assert(g.bubbles.size()==(button?1u:0u));
+      assert(g.drew(!on?"Bluetooth is off":tournament?"Tournament: no RPM":v.app?"App connected":"Waiting for app"));
+      assert(g.drew(waiting==1?"To sync: 1":waiting==50?"To sync: 50":waiting?"To sync: 65535":"To sync: 0"));
+      assert(g.drew("Last sync: 50")==(synced==50) && g.drew("Last sync: 1")==(synced==1));
+      for(const auto &span:g.spans)if(span[3]==1 && span[2]>=31 && span[2]<213)assert(span[0]>=10 && span[1]<=125);
+      ++renders;
+    }
   // Before it turns on, the page says it is experimental (0.20.9); every line fits.
   for(bool enable:{false,true}) {
     lgfx::LGFXBase g;ControlsUI::enableBluetooth(g,enable);
