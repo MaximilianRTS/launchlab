@@ -1,6 +1,8 @@
 # LaunchLab for M5StickS3
 
-Current revision: **<!-- current-release:start runtime -->0.20.10-sticks3-songs-pm<!-- current-release:end -->**, the recommended stable release, for **M5StickS3 K150 (ESP32-S3, 8 MB flash / 8 MB OPI PSRAM)**. <!-- current-release:start source -->This folder holds the source of the newer **0.20.11-sticks3-songs-pm** beta release: see its [0.20.11 release notes](../releases/0.20.11-sticks3-songs-pm/README.md) and [build context](../../docs/FIRMWARE_0.20.11.md).<!-- current-release:end -->
+Current checkout: **Analysis 1.0-rc.5**, based on firmware 0.20.11, for **M5StickS3 K150 (ESP32-S3, 8 MB flash / 8 MB OPI PSRAM)**. Runtime: `0.20.11-analysis-1.0-rc.5-pm`. This is a release candidate awaiting hardware acceptance, not a published stable release. See the [RC notes and checklist](../../docs/ANALYSIS_1.0_RC.md).
+
+Upstream release baseline: **<!-- current-release:start runtime -->0.20.10-sticks3-songs-pm<!-- current-release:end -->**, the recommended stable release, for **M5StickS3 K150 (ESP32-S3, 8 MB flash / 8 MB OPI PSRAM)**. <!-- current-release:start source -->This folder holds the source of the newer **0.20.11-sticks3-songs-pm** beta release: see its [0.20.11 release notes](../releases/0.20.11-sticks3-songs-pm/README.md) and [build context](../../docs/FIRMWARE_0.20.11.md).<!-- current-release:end -->
 One application supports analog QRE1113 and TCRT5000 through the saved Sensor profile setting.
 See <!-- current-release:start build-context -->[build context](../../docs/FIRMWARE_0.20.10.md)<!-- current-release:end --> and <!-- current-release:start release-notes -->[0.20.10 release notes](../releases/0.20.10-sticks3-songs-pm/README.md)<!-- current-release:end -->.
 
@@ -29,6 +31,32 @@ Custom color themes made in the [website theme editor](https://launchlab.beywatc
 Settings adds saved Top/Sidecar mounting and a guarded Wipe all flow. Themes, personal-best effects, optional sound, history and USB backup/restore remain available.
 Battery display uses filtered voltage readings, idle screen updates are reduced, and PM1 access uses checked wake/retry handling.
 
+## Analysis Mode
+
+Hold **B** for one second on Main to enter Analysis. Give the microphone about a second to warm up. A valid optical launch starts the timer and the acoustic RPM graph. Press **B** when the spin finishes. The five-minute timeout ends recording but leaves the physical stop time unknown.
+
+**A** toggles tilt replay and the initial optical RPM graph. Recording continues during replay. Hold **B** to leave Analysis. The microphone stays warm between launches and the speaker is muted while Analysis is open.
+
+During recording, a gated alpha-beta filter smooths the microphone readings. Gray points show readings withheld by the live filter. The Now row shows the latest heard RPM and becomes Last after stopping. The fitter retains the original readings so that smoothing does not distort its coefficients.
+
+### Fitted curve
+
+From ten seconds after release, Analysis can fit a live preview to ten or more raw readings covering at least two seconds. As new readings arrive it starts at most one refit every two seconds. Fixed Riccati fits a straight line to transformed acoustic RPM with a free intercept and eight robust, RPM-weighted passes. Its shared drag shape in kRPM is 0.00360 + 0.00380x + 0.00589x^2. The per-spin time scale must be between 0.3 and 3, with at least 70% of readings within 150 RPM of the curve. The Fixed Riccati line projects to 578 RPM. The live graph keeps the measured interval at its original timestamps and scales the dotted tail to the active finish estimate.
+
+The Stamina Analysis screen gives a finish estimate every second from ten seconds after launch. It blends a robust curve through accepted original mic readings with the published Fixed Riccati finish, giving the latter more weight as successive fits agree and its acoustic support improves. Either curve can supply the forecast by itself. If both are unavailable, a regression uses the launch RPM, mic counts and observed decline. A bounded signed correction and the elapsed spin time produce the displayed finish. The two regressions were trained on manually stopped FB and stamina launches. Full-session audio metadata is archived for offline research.
+
+Analysis buffers up to two acquiring windows and recovers their measured frequencies when the next lock confirms the same cycle count and frequency sequence. The calibration export marks recovered points individually and records counts of delivered frames by tracker decision. These counts include recovered windows under their original acquiring decision. The archive also records skipped audio milliseconds and queue drops as of the last delivered frame. Normal Mic RPM tracking uses its original path.
+
+Stopping the timer starts a final Fixed Riccati fit on the complete mic trace. For a manual stop, the graph connects the optical launch RPM to the fitted acoustic interval. A monotone cubic Hermite tail joins the fitted RPM and slope at the last inlier to zero RPM at the manual stop. A timeout retains the distinction between recorded duration and spin finish.
+
+If Fixed Riccati declines the trace, the Stick fits Free Riccati (`a + b*x + c*x^2`, where `x` is in thousands of RPM). The fallback classifies sustained downward tracks, trains on the first 80% of retained readings and validates on the final 20%. If neither fit succeeds after a manual stop, a `Fixed Riccati Estimate` scales the shared shape between the IR launch and manual zero endpoint. This estimate and its unused readings are gray, and exports distinguish it from a mic fit. Accepted fits keep their existing validation checks. While recording, full-brightness 2x2 dotted lines show current time in the theme's text color and predicted finish in its warning color. The predicted-finish label also uses the warning color. The live axis extends ten seconds beyond that prediction, then follows elapsed time plus ten seconds if the spin outlasts it.
+
+### Analysis Details
+
+After stopping, press **B** to open Details. The page shows duration, average RPM lost per second, total revolutions, estimated battle stamina and the time spent crossing each complete 1,000 RPM band. Revolutions come from the area under the displayed curve. Battle stamina is the time from launch to its first downward crossing of 1,000 RPM. A timeout limits these metrics to the recorded interval. Press **B** for additional bands or **A** to return.
+
+Opening Details queues the latest completed fit for storage at an idle flash checkpoint. The 512-byte `analysis_fit` record contains the coefficients, scores, curve anchors and winning model when one was selected. Saving reserves room for practice history. Manual stop and timeout immediately queue the frozen raw observations, last live preview and endpoint for calibration. The final fit adds metrics and exclusion flags when available. A failed raw or fit write remains queued for retry at an idle checkpoint. The newest 32 completed packets are retained across restarts at idle flash checkpoints. Each includes full-session acoustic metadata: 200 ms summaries for the first 30 seconds and one-second summaries thereafter, up to five minutes. Eight FFT energy bands, level, flatness, candidate pitch evidence, noise/clipping counts and delivery timing are recorded even when no RPM is accepted. A separate 32-record ring replaces the former two-WAV storage; metadata writes retry independently of raw traces and fits. The collector uses guarded command `Z` to download the batch in chronological order. Command `J` retrieves the newest RAM packet, or the latest saved packet after a restart. See [Windows calibration export](../../docs/LOCAL_WINDOWS.md#export-the-latest-launch-for-calibration). A new launch or leaving Analysis releases the previous result.
+
 ## Wiring
 
 Sensor VCC → Hat 3.3 V; GND → GND; analog OUT → Hat G1 / GPIO1. The Grove red wire supplies 5 V and must not be used as the sensor supply. Use the analog output; leave any digital output unused. See [assembly guide](../../docs/BUILD.md).
@@ -49,7 +77,7 @@ Measurement runs on every screen while active. After 30 seconds of stillness, RE
 
 - **Main:** A shows the latest launch recap; B opens the menu. Hold A for one second to enter tournament mode.
 - **Menus:** A opens or applies the highlighted item; B moves to the next choice; hold B goes back one level or cancels an edit. Every list has a Back choice.
-- **Menu items:** History, New session, Battery, Settings, Tournament, String wear check, Mic RPM and Back. History offers Launches, Pull trend and Session trend. New session starts on the next accepted pull and keeps earlier launches.
+- **Menu items:** History, New session, Device, Settings, Tournament, String wear check, Mic RPM and Back. History offers Launches, Pull trend and Session trend. New session starts on the next accepted pull and keeps earlier launches.
 - **Settings:** Sleep after, Shake to wake, RPM method, Brightness, Sensor profile, Flip display, Theme, Best effect, Celebrate, Sound, Mounting, Battery icon, Wipe all and About, five rows to a page. In an editor the value is centred, with a faint `B next option ->` hint beneath it: B cycles the value, A applies, hold B cancels.
   - Sleep after: 1–10 minutes, 1-minute default (3 minutes before 0.20.2; a chosen time is kept).
   - Shake to wake: On (default) wakes on a shake; Off sleeps more deeply and only the side key wakes it.
@@ -78,6 +106,17 @@ Measured launches, button use and interactive USB commands refresh the inactivit
 
 Run `bash scripts/build-firmware.sh` with Arduino CLI installed. The script pins ESP32 3.3.0, M5Unified 0.2.23 and M5GFX 0.2.30, verifies the complete PM SDK and explicitly enables both release flags. Use the frozen application for exact binary restoration; rebuilt bytes can vary with build environment.
 
-Run `bash scripts/test-firmware.sh` for 80 sanitizer-enabled native suites and 20 production-code harnesses with synthetic fixtures. The updater tests cover application-only upgrades, no-op detection, intentional rollback, first-install confirmation, chip/capacity checks and artifact verification.
+Run `bash scripts/test-firmware.sh` for the native suites, production-code harnesses, export compatibility and local updater checks. The native gate requests AddressSanitizer and UndefinedBehaviorSanitizer; use a compiler with those runtimes. The local updater tests cover application-only upgrades, no-op detection, chip/capacity checks and artifact verification without opening a device.
 
 [USB update and backup](../../docs/UPDATER.md) · [Recovery](../../docs/RECOVERY.md).
+
+## Device page
+
+The main menu's Device entry replaces Battery, retaining the same navigation and saved
+page identifier. It shows charge percentage, voltage and charging status, plus flash
+chip capacity, verified running-firmware image size / running-slot capacity, and unused
+space within that firmware slot (MiB). App free is firmware growth room, not storage
+available for history or effects; other flash partitions are reserved separately.
+Unavailable flash metadata is shown explicitly. It is read once before acquisition starts.
+The main menu also shows the battery percentage to the left of its top-right icon; both follow
+the existing Battery icon setting and battery-reading validity.

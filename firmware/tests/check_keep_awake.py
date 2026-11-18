@@ -67,6 +67,12 @@ KEEP_AWAKE = [
      'a Wear check step, a person pulling (check_wear_pipeline)'),
     ('loop', 'inactivity.touch(millis());',
      'an accepted pull (check_history_retry)'),
+    ('loop', 'inactivity.touch(millis());',
+     'once when the five-minute Analysis limit stops the session (check_analysis_lifecycle)'),
+    ('navigate', 'if(analysis.stop(esp_timer_get_time())){captureStoppedCalibration();inactivity.touch(millis());dirty=true;}',
+     'one manual stop per launch (check_analysis_lifecycle)'),
+    ('navigate', 'else if(analysis.nextResult()){inactivity.touch(millis());dirty=true;}',
+     'a button press opening Analysis Details (test_analysis_mode)'),
     ('loop', 'if(opticalGuard.measuring(now,s.phase==AnalogTachometer::Phase::Launch))inactivity.touch(now);',
      'a pull being measured: OpticalSleepGuard::MEASURE_LIMIT_MS (test_motion_activity, HIL sleep_blockers)'),
     # ---- Ways out of the shutdown flush without sleeping.
@@ -74,9 +80,9 @@ KEEP_AWAKE = [
      'the detector busy: OpticalSleepGuard forces the stop after FORCE_AFTER refusals (test_acquisition_owner, HIL sleep_blockers)'),
     ('flushForShutdown', 'return ShutdownFlush::NewPull;',
      'a pull accepted during the flush, a person pulling'),
-    ('flushForShutdown', 'Serial.printf("POWER_OFF_DEFERRED %s_save_failed\\n",historyFailed?"history":"best");',
+    ('flushForShutdown', 'Serial.printf("POWER_OFF_DEFERRED %s_save_failed\\n",calibrationFailed?"calibration":historyFailed?"history":"best");',
      'a save no store holds: with the history log open the log takes it, NVS only a copy (check_save_paths, HIL sleep_blockers); '
-     'only a unit whose log did not open stays on, and shows the save error'),
+     'a failed Analysis archive also defers shutdown until saved, showing the save error (check_calibration_export)'),
     ('flushForShutdown', 'return ShutdownFlush::SaveFailed;', 'as the line above'),
     ('flushForShutdown', 'return ShutdownFlush::Ready;', 'the sleep goes ahead'),
     # ---- Ways out of the inactivity sleep before it runs.
@@ -87,6 +93,8 @@ KEEP_AWAKE = [
     ('autoPowerOff', 'if(!Hil::allowSleep.load())return;', 'HIL builds only, never shipped'),
     ('autoPowerOff', 'if(usbAwake.inhibited(now) && !dry)return;',
      'a computer attached: USB power, not battery (check_usb_pipeline)'),
+    ('autoPowerOff', 'if(controls.page==Controls::Page::Analysis && analysis.running())return;',
+     'Analysis stops automatically after Session::LIMIT_US (five minutes), then inactivity can sleep (check_analysis_lifecycle)'),
     ('autoPowerOff', 'if(PhoneLinkAwake::holds(BleLink::connected(),inactivity.sinceUse(now)))return;',
      'a connected phone (Bluetooth On only): PhoneLinkAwake::LIMIT_MS after the last button or pull on the stick, and what the '
      'phone sends is not use (test_motion_activity)'),

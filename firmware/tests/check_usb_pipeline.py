@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Execute exact production USB polling/standby functions under bounded fakes."""
 import argparse
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -46,6 +47,8 @@ static FrameRows frameRows;
 #include "power_diagnostics.h"
 #include "wake_ui_state.h"
 #include "controls.h"
+#include "analysis_mode.h"
+static AnalysisMode::Session analysis;
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -131,6 +134,7 @@ static void prepareMotion(const Snapshot&){motionPending=true;}
 static void logLaunchMetrics(const Snapshot&){}static void noteStartMark(const Snapshot&){}static void saveStartMarks(){}
 // Settings persistence has its own production harness (check_save_paths.py).
 static void writeSettings(){}
+static bool calibrationNeedsSave(){return false;}
 static void cancelSettingEdit(){}
 static bool saveWakeNavigation(){return true;}
 '''
@@ -153,6 +157,10 @@ static void off(){autoPowerOff(millis(),acquisition.snapshot());}
 static void confirmedHost(){hardwareSof=true;powerSource=5;poll(1000);poll(1250);assert(usbAwake.remembered());}
 static void assertNoStandby(){assert(!acquisition.begins && !shakeWake.arms && !shakeWake.sleeps && !prefs.writes && !M5.Display.writes && !M5.Power.writes && !powerSaves);}
 int main(){
+  reset();controls.page=Controls::Page::Analysis;analysis.begin(1,true,6000,1000000);
+  at(601000);off();assert(!shakeWake.sleeps);
+  analysis.stop(601000000);controls.page=Controls::Page::Main;analysis.clear();
+
   // The connection monitor can remain optimistically positive for multiple
   // polls. SOF alone must not promote a shake wake when checked VIN is absent.
   reset();inactivity.begin(1000,true);hardwareSof=true;powerSource=4;
@@ -317,7 +325,7 @@ with tempfile.TemporaryDirectory() as tmp:
     cpp=pathlib.Path(tmp)/'usb_pipeline.cpp'
     cpp.write_text(prefix+closed(source)+function('pollUsbAwake')+'\n'+shutdown_flush()+'\n'+function('autoPowerOff')+tests)
     exe=pathlib.Path(tmp)/'usb_pipeline'
-    cmd=['c++','-std=c++17','-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer',
+    cmd=[os.environ.get('CXX','c++'),'-std=c++17','-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer',
          '-I'+str(args.firmware/'tests/fakes'),'-I'+str(args.firmware/'LaunchLabMini'),'-I'+str(args.firmware/'LaunchLabRpm'),str(cpp),'-o',str(exe)]
     subprocess.run(cmd,check=True)
     subprocess.run([str(exe)],check=True)

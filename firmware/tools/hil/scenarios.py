@@ -2908,8 +2908,8 @@ def key(rig, letter, wait=0.4):
 
 # The Menu top to bottom (Controls::MenuRow, 0.20.9's order): B from Main opens it on
 # row 0, and each B after that goes one row down.
-MENU_ROWS = ['History', 'New session', 'Tournament', 'String wear check', 'Mic RPM', 'Battery', 'Bluetooth', 'Settings', 'Back']
-SETTINGS_MENU_ROW, BATTERY_MENU_ROW, WEAR_MENU_ROW = MENU_ROWS.index('Settings'), MENU_ROWS.index('Battery'), MENU_ROWS.index('String wear check')
+MENU_ROWS = ['History', 'New session', 'Tournament', 'String wear check', 'Mic RPM', 'Device', 'Bluetooth', 'Settings', 'Back']
+SETTINGS_MENU_ROW, BATTERY_MENU_ROW, WEAR_MENU_ROW = MENU_ROWS.index('Settings'), MENU_ROWS.index('Device'), MENU_ROWS.index('String wear check')
 
 ABOUT_PAGE, SETTINGS_PAGE, ABOUT_ROW = '12', '5', '12'  # Controls::Page::About, Page::Settings, Setting::About
 # The Settings rows top to bottom (Controls::ORDER, then Back as SETTING_COUNT):

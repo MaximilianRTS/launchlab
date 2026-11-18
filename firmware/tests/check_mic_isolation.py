@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The mic stays off until the Mic RPM page opens.
+"""The mic stays off until the Mic RPM or Analysis page opens.
 
 Mic capture holds the shared I2S clock pins and the ES8311, which the speaker
 needs, takes the IMU owner's gate to start and takes heap, so nothing but the
@@ -39,7 +39,7 @@ def main():
     if ticks != ['micListener.tick(open,soundPlayer.powered(),now);']:
         problems.append(f'micListener.tick() must run once, from tickMicPage, got {ticks}')
     tick = after(ino, 'LOOP_HELPER static void tickMicPage() {', 4)
-    if 'const bool open=controls.page==Controls::Page::MicRpm;' not in tick or 'if(!open && micListener.off())return;' not in tick:
+    if 'const bool open=controls.page==Controls::Page::MicRpm || controls.page==Controls::Page::Analysis;' not in tick or 'if(!open && micListener.off())return;' not in tick:
         problems.append('tickMicPage() must stop at once unless the page is open or the mic is still running')
     if ino.count('tickMicPage();') != 1:
         problems.append('tickMicPage() must run once a loop pass')
@@ -51,8 +51,10 @@ def main():
         problems.append('status() must leave the mic\'s lines out while the speaker is powered')
     # Sleep and power-off wait for the mic rather than meeting it, for
     # MicSession::STOP_LIMIT_MS at most (check_keep_awake.py).
-    if ino.count('if(micListener.holdsSleep(now)){leaveMicPage();return;}') != 2:
-        problems.append('both the inactivity sleep and the power key must leave the page and wait')
+    for name in ('autoPowerOff', 'powerKeyOff', 'restartForBluetooth'):
+        body = after(ino, f'static void {name}(', 45)
+        if 'if(micListener.holdsSleep(now)){leaveMicPage();return;}' not in body:
+            problems.append(f'{name} must leave the mic page and wait')
     controls = (SOURCES / 'controls.h').read_text()
     if 'Page::MicRpm' not in controls:
         problems.append('expected the Mic RPM page in controls.h: this check has lost its target')
@@ -71,7 +73,7 @@ def main():
     if listener.count('vTaskPrioritySet(task_,PRIORITY);') != 2:
         problems.append('a pull and a stop must each lift the task out of its bench')
     # A pull the ring has lapped is heard late, never dropped (a8ee2234: four of six).
-    follow = after(listener, '  void follow() {', 30)
+    follow = after(listener, '  void follow() {', 50)
     if 'MicSession::resume(at,have,USABLE,MARGIN)' not in follow or 'overruns_;break;' in follow:
         problems.append('follow() must skip sound the ring lost, never give up the spin')
     # Two writers to the capture chain held a stop for 10 s (2e0ba398): the task lights it, once.
@@ -96,7 +98,7 @@ def main():
             problems.append(f'{script}: the mic takes no build option')
     if problems:
         raise SystemExit('\n'.join(problems))
-    print('PASS: only the Mic RPM page starts the mic, and only it mutes the speaker')
+    print('PASS: only Mic RPM and Analysis start the mic and mute the speaker')
 
 
 if __name__ == '__main__':

@@ -8,9 +8,10 @@
 // Navigation never starts/stops measurement. Effects are handled by the sketch
 // after the visible state changes; setting writes only happen on Apply.
 namespace Controls {
+// Battery retains its persisted page ID; the menu and screen call it Device.
 enum class Page:uint8_t {Main,Menu,HistoryMenu,History,Battery,Settings,Edit,NewSession,Tournament,Wipe,WearCheck,MicRpm,About,
-  Bluetooth,ForgetPhones,EnableBluetooth,BeybladeX};
-enum class Effect:uint8_t {None,Recap,BeginEdit,Preview,Apply,CancelEdit,Older,NewSession,Tournament,BeginWipe,ConfirmWipe,CancelWipe,ForgetPhones,ToggleBluetooth};
+  Bluetooth,ForgetPhones,EnableBluetooth,BeybladeX,Analysis};
+enum class Effect:uint8_t {None,Recap,BeginEdit,Preview,Apply,CancelEdit,Older,NewSession,Tournament,BeginWipe,ConfirmWipe,CancelWipe,ForgetPhones,ToggleBluetooth,AnalysisStop,AnalysisReplay};
 // The Menu, top to bottom, in three groups (0.20.9): what a session uses
 // (History, New session, Tournament), the tools (String wear check, Mic RPM),
 // then the device (Battery, Bluetooth, Settings), and Back. Through 0.20.8 the
@@ -78,6 +79,7 @@ struct State {
   Effect tapA() {
     switch(page) {
       case Page::Main:return Effect::Recap;
+      case Page::Analysis:return Effect::AnalysisReplay;
       case Page::Menu:
         switch(menu) {
           case HISTORY_ROW:page=Page::HistoryMenu;break;
@@ -121,6 +123,7 @@ struct State {
   Effect tapB() {
     switch(page) {
       case Page::Main:page=Page::Menu;menu=0;break;
+      case Page::Analysis:return Effect::AnalysisStop;
       case Page::Menu:menu=(menu+1)%MENU_COUNT;break;
       case Page::HistoryMenu:history=(history+1)%4;break;
       case Page::History:return Effect::Older;
@@ -163,7 +166,8 @@ struct State {
       case Page::MicRpm:page=Page::Menu;break;
       case Page::ForgetPhones:case Page::EnableBluetooth:case Page::BeybladeX:page=Page::Bluetooth;break;
       case Page::Menu:page=Page::Main;break;
-      case Page::Main:return recap?Effect::Recap:Effect::None;
+      case Page::Main:page=Page::Analysis;break;
+      case Page::Analysis:page=Page::Main;break;
       case Page::Tournament:break;
       case Page::Wipe:return Effect::CancelWipe;
     }
@@ -207,6 +211,7 @@ static constexpr uint32_t LEGACY_WAKE_MAGIC=0x4e560000,WAKE7_MAGIC=0x4e570000,
   WAKE8_MAGIC=0x4e580000,WAKE9_MAGIC=0x4e590000,WAKE10_MAGIC=0x4e5a0000,WAKE11_MAGIC=0x4e5b0000,
   WAKE12_MAGIC=0x4e5c0000,WAKE13_MAGIC=0x4e5d0000,WAKE14_MAGIC=0x4e5e0000,WAKE15_MAGIC=0x4e5f0000,WAKE_MAGIC=0x4e620000;
 inline uint32_t encodeWake(State state,uint8_t tournamentView) {
+  if(state.page==Page::Analysis)state.page=Page::Main;
   if(state.page==Page::Edit || state.page==Page::Wipe)state.page=Page::Settings;
   if(state.page==Page::WearCheck){state.page=Page::Menu;state.menu=WEAR_ROW;}
   if(state.page==Page::MicRpm){state.page=Page::Menu;state.menu=MIC_ROW;}  // the mic never starts on wake

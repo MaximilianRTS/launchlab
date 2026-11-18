@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include "mic_rpm.h"
+#include "early_spin.h"
 
 // The spin heard since a launch, as the Mic RPM page plots it (mic_view_ui.h):
 // slots 0.1 s apart from the end of the pull, a locked spin filling every
@@ -11,6 +12,7 @@
 // Hz x 60 / the cycles per turn the optical peak resolved, and never the
 // optical RPM, which stays a separate marker at time zero.
 namespace MicTrace {
+constexpr unsigned ANALYSIS_READINGS=3000; // Five minutes, Analysis only.
 constexpr unsigned MAX_READINGS=1200;  // 2 minutes of slots; the apps stop at 10
 constexpr unsigned LOST_READINGS=80;   // 8 s of slots with no evidence ends a spin, as in the apps
 constexpr float HOP_S=float(MicRpm::HOP)/float(MicRpm::TRACK_HZ);
@@ -22,8 +24,10 @@ constexpr float MIN_SPAN_S=10,SPAN_STEP_S=10,MIN_TOP_RPM=9000,TOP_STEP_RPM=3000;
 inline unsigned slot(float seconds){return unsigned(std::lround(std::max(seconds-FIRST_S,0.f)/HOP_S));}
 // One reading, from the analysis task to the loop.
 struct Step {
-  uint32_t launch=0;uint16_t index=0,rpm=0;
-  MicRpm::Reason reason=MicRpm::Reason::Quiet;bool last=false;
+  uint32_t launch=0;uint16_t index=0,rpm=0,rejectedRpm=0,rawRpm=0;
+  MicRpm::Reason reason=MicRpm::Reason::Quiet;bool last=false, recovered=false, frame=false;uint32_t skippedMs=0,lostFrames=0;
+  uint8_t pitchConfidence=0;
+  AudioMetadata::Measurement audio{};
 };
 // The apps' launch detector's evidence of a spin: trusted, or about to be.
 inline bool evidence(const MicRpm::Reading &r) {
@@ -42,11 +46,12 @@ inline bool finished(unsigned index,unsigned quiet){return quiet>=LOST_READINGS 
 // when the spin is over.
 class Follower {
 public:
+  explicit Follower(bool analysis=false):analysis_(analysis){}
   Step next(uint32_t launch,const MicRpm::Reading &r,float seconds) {
     const unsigned at=MicTrace::slot(seconds);
     quiet_=evidence(r)?0:quiet_+(skipped_?1:at-slot_);slot_=at;skipped_=false;
-    done_=finished(at,quiet_);
-    return step(launch,at,r,done_);
+    done_=analysis_?at+1>=ANALYSIS_READINGS:finished(at,quiet_);
+    auto sample=step(launch,at,r,done_);sample.frame=true;return sample;
   }
   // The reader skipped sound the ring had lost: the slots up to the next
   // reading were never heard, so they are not quiet ones.
@@ -54,32 +59,74 @@ public:
   bool done()const{return done_;}
   unsigned slot()const{return slot_;}
 private:
-  unsigned slot_=0,quiet_=0;bool done_=false,skipped_=false;
+  unsigned slot_=0,quiet_=0;bool done_=false,skipped_=false,analysis_=false;
 };
 
 // Owned by the loop: the analysis task only sends Steps. Its slots live
 // beside it in StoredTrace, so an empty one costs almost nothing.
 class Trace {
 public:
-  constexpr explicit Trace(uint16_t *slots=nullptr):rpm_(slots){}
-  void clear(){launch_=0;count_=heard_=first_=last_=0;peak_=optical_=0;started_=ended_=false;reason_=MicRpm::Reason::Quiet;}
+  constexpr explicit Trace(uint16_t *slots=nullptr,unsigned capacity=MAX_READINGS,uint16_t *rejected=nullptr,uint8_t *recovery=nullptr,uint8_t *pitchConfidence=nullptr):recovery_(recovery),pitchConfidence_(pitchConfidence),rpm_(slots),rejected_(rejected),capacity_(capacity){}
+  unsigned capacity()const{return capacity_;}
+  void clear(){earlyReadings_=skippedMs_=lostFrames_=0;std::fill(std::begin(reasons_),std::end(reasons_),0);if(recovery_)std::memset(recovery_,0,(capacity_+7)/8);if(pitchConfidence_)std::memset(pitchConfidence_,0,capacity_);launch_=0;count_=heard_=first_=last_=rawCount_=0;peak_=optical_=rejectedPeak_=0;started_=ended_=frozen_=false;reason_=MicRpm::Reason::Quiet;}
   // `opticalRpm`: the launch's peak, 0 when the optical reading was invalid.
   void begin(uint32_t launch,float opticalRpm=0){clear();launch_=launch;optical_=uint16_t(std::lround(std::min(opticalRpm,65535.f)));started_=true;}
   // Steps of an older launch and repeats are ignored; a lost step reads as no reading.
   void add(const Step &s) {
-    if(!started_ || s.launch!=launch_ || s.index<count_ || s.index>=MAX_READINGS)return;
-    while(count_<s.index)rpm_[count_++]=0;
+    if(frozen_ || !started_ || s.launch!=launch_ || s.index<count_ || s.index>=capacity_)return;
+    while(count_<s.index){if(rejected_)rejected_[count_]=0;rpm_[count_++]=0;}
+    if(s.frame){++reasons_[unsigned(s.reason)];skippedMs_=s.skippedMs;lostFrames_=s.lostFrames;}
+    if(rejected_){
+      const uint16_t raw=s.rawRpm?s.rawRpm:(s.rejectedRpm?s.rejectedRpm:s.rpm);
+      rejected_[count_]=raw;
+      if(raw){
+        ++rawCount_;
+        if((s.recovered || s.pitchConfidence) && recovery_)recovery_[s.index/8]|=uint8_t(1u<<(s.index%8));
+        if(pitchConfidence_)pitchConfidence_[s.index]=s.pitchConfidence;
+        if(!s.recovered && !s.pitchConfidence && std::lround(seconds(s.index)*1000)<=EarlySpin::WINDOW_MS)++earlyReadings_;
+      }
+      rejectedPeak_=std::max(rejectedPeak_,s.rejectedRpm);
+    }
     rpm_[count_++]=s.rpm;reason_=s.reason;ended_=s.last;
     if(!s.rpm)return;
     if(!heard_)first_=s.index;
     last_=s.index;++heard_;peak_=std::max(peak_,s.rpm);
   }
+  void freeze(uint32_t endMs=UINT32_MAX){
+    frozen_=true;
+    const unsigned before=count_;
+    // A delayed UI pass may see a window past the five-minute deadline.
+    // Endpoint samples cannot also serve as pre-stop RPM observations.
+    while(count_ && uint32_t(std::lround(seconds(count_-1)*1000))>=endMs)--count_;
+    if(count_==before)return;
+    heard_=rawCount_=earlyReadings_=first_=last_=0;peak_=rejectedPeak_=0;
+    for(unsigned i=0;i<count_;++i){
+      if(rawRpm(i)){
+        ++rawCount_;
+        if(!recovered(i) && uint32_t(std::lround(seconds(i)*1000))<=EarlySpin::WINDOW_MS)++earlyReadings_;
+      }
+      rejectedPeak_=std::max(rejectedPeak_,rejectedRpm(i));
+      if(!rpm_[i])continue;
+      if(!heard_)first_=i;
+      ++heard_;last_=i;peak_=std::max(peak_,rpm_[i]);
+    }
+  }
   bool started()const{return started_;}
   bool ended()const{return ended_;}
   uint32_t launch()const{return launch_;}
   unsigned count()const{return count_;}
+  unsigned earlyReadings()const{return earlyReadings_;}
+  bool recovered(unsigned i)const{return pitchConfidence(i) || (recovery_ && (recovery_[i/8]&(1u<<(i%8))));}
+  uint8_t pitchConfidence(unsigned i)const{return pitchConfidence_?pitchConfidence_[i]:0;}
+  unsigned skippedMs()const{return skippedMs_;}
+  unsigned lostFrames()const{return lostFrames_;}
+  unsigned reasonCount(unsigned i)const{return reasons_[i];}
+  unsigned rawCount()const{return rejected_?rawCount_:heard_;}
   unsigned heard()const{return heard_;}
   uint16_t rpm(unsigned i)const{return rpm_[i];}
+  uint16_t rawRpm(unsigned i)const{return rejected_?rejected_[i]:rpm_[i];}
+  uint16_t rejectedRpm(unsigned i)const{return rejected_ && !rpm_[i]?rejected_[i]:0;}
+  uint16_t rejectedPeakRpm()const{return rejectedPeak_;}
   static float seconds(unsigned i){return FIRST_S+float(i)*HOP_S;}
   float elapsed()const{return count_?seconds(count_-1):0;}
   float firstSeconds()const{return seconds(first_);}
@@ -92,9 +139,14 @@ public:
   // The change from the first reading to the latest, in percent.
   float changePercent()const{return heard_?100*(float(latestRpm())-float(firstRpm()))/float(firstRpm()):0;}
 private:
-  uint16_t *rpm_;  // 0: no trusted reading
-  uint32_t launch_=0;unsigned count_=0,heard_=0,first_=0,last_=0;uint16_t peak_=0,optical_=0;
-  bool started_=false,ended_=false;MicRpm::Reason reason_=MicRpm::Reason::Quiet;
+  uint8_t *recovery_;
+  uint8_t *pitchConfidence_;
+  unsigned earlyReadings_=0,skippedMs_=0,lostFrames_=0;uint16_t reasons_[MicRpm::REASONS]={};
+  uint16_t *rpm_;       // 0: no trusted reading
+  uint16_t *rejected_;  // Optional Analysis-only original acoustic readings, before the filter
+  unsigned capacity_;
+  uint32_t launch_=0;unsigned count_=0,heard_=0,first_=0,last_=0,rawCount_=0;uint16_t peak_=0,optical_=0,rejectedPeak_=0;
+  bool started_=false,ended_=false,frozen_=false;MicRpm::Reason reason_=MicRpm::Reason::Quiet;
 };
 class StoredTrace:public Trace {
 public:
@@ -124,6 +176,7 @@ inline float spanSeconds(float elapsed){return std::max(MIN_SPAN_S,std::ceil(ela
 // on that column, so a long spin costs at most one segment per column. `join`
 // connects it to the point before; a gap of GAP_S or more does not.
 template<class Emit> inline void columns(const Trace &t,int width,float span,Emit emit) {
+  if(!t.heard())return;
   int column=-1;float sum=0,previous=0;unsigned n=0;bool join=false;
   for(unsigned i=0;i<t.count();++i) {
     if(!t.rpm(i))continue;

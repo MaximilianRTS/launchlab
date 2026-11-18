@@ -21,6 +21,15 @@ def function(name,result='void'):
     return source[start:cursor]
 prefix=r'''
 #include "controls.h"
+#include "analysis_mode.h"
+static AnalysisMode::Session analysis;
+static bool saveAnalysisResult(){return true;}
+static bool saveCalibration(){return true;}
+static bool calibrationCapturePending=false;
+static bool captureStoppedCalibration(){return true;}
+static bool interruptAnalysis(uint64_t now){analysis.interrupt(now);return captureStoppedCalibration();}
+struct AnalysisMicFake {void freezeTrace(){}};static AnalysisMicFake micListener;
+static uint64_t esp_timer_get_time(){return 1000000;}
 #include "appearance_store.h"
 #include "milestone_store.h"
 #include "theme_library.h"
@@ -309,6 +318,13 @@ static void bootCelebrateDefault() {
 }
 static void edit(unsigned row){controls.page=Page::Settings;controls.setting=row;syncNavigation();buttonA();assert(controls.page==Page::Edit);}
 int main(){
+  reset();holdB();assert(controls.page==Controls::Page::Analysis);
+  analysis.begin(1,true,9000,500000);buttonB();assert(!analysis.running() && !analysis.results());
+  buttonB();assert(analysis.results() && analysis.tablePage()==0);
+  for(unsigned i=1;i<=4;++i){buttonB();assert(analysis.results() && analysis.tablePage()==i);}
+  buttonA();assert(!analysis.results() && !analysis.replay());buttonA();assert(analysis.replay());
+  buttonB();assert(analysis.results() && !analysis.replay());holdB();assert(controls.page==Controls::Page::Main && !analysis.number());
+
   bootDefaults();bootCelebrateDefault();
   reset();restoreMountAtBoot();assert(mountMode==MountOrientation::Mode::Top && !prefs.writes);
   for(auto selected:{MountOrientation::Mode::Sidecar,MountOrientation::Mode::Top}) {
@@ -322,7 +338,9 @@ int main(){
     displayFlipped=!saved;M5.Display.rotation=99;restoreDisplayAtBoot();
     assert(displayFlipped==saved && M5.Display.rotation==(saved?0u:2u) && Preferences::data==stored);
   }
-  reset();buttonA();holdB();assert(!launchFeedback.shown() && controls.page==Page::Main);
+  reset();buttonA();holdB();assert(!launchFeedback.shown() && controls.page==Page::Analysis);
+  assert(analysis.begin(1,true,6000,500000));buttonA();assert(analysis.running() && analysis.replay());buttonA();assert(!analysis.replay() && analysis.running());buttonB();assert(!analysis.running());
+  holdB();assert(controls.page==Page::Main && !historyPage && !analysis.number());
   reset();edit(2);acquisition.state.phase=AnalogTachometer::Phase::Launch;buttonB();
   assert(controls.draft==BRIGHT+10 && brightnessPercent==BRIGHT && M5.Display.brightness==light(BRIGHT) && restorePreview);
   acquisition.state.phase=AnalogTachometer::Phase::Ready;previewSetting();

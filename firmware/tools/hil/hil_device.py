@@ -81,7 +81,7 @@ class DeviceError(RuntimeError):
 
 # A guarded USB command alone on its line, a letter or `E`/`g` with its digits
 # (usb_command_guard.h, which also lists the letters).
-GUARDED_COMMAND = re.compile(rb'^[OSxgiaodhceQEqbnutyzvwjsLTMUFXmAYWV][0-9]*\n$')
+GUARDED_COMMAND = re.compile(rb'^[OSxgiaodhceQEqbnutyzvwjsLTMUFXmAYWVGJZ][0-9]*\n$')
 # The guard runs one only after 20 ms of input quiet on the device's clock: the
 # 0.20.7 smoke lost a tap A and a song preview sent straight after a status
 # read. The device takes in a line only when the loop gets to it (after the

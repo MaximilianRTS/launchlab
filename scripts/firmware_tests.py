@@ -56,6 +56,8 @@ INCLUDES = ['-Ifirmware/tests/fakes', '-Ifirmware/LaunchLabRpm', '-Ifirmware/Lau
 
 # C++ suites built with the VQF filter (single precision, as on the device).
 VQF_SUITES = '''
+decay_models decay_record stopped_estimate analysis_rpm_filter analysis_mode analysis_ui
+relative_pitch audio_metadata audio_metadata_store settings_save
 accel_range bmi270_fifo i2c_bus_recovery appearance nvs_budget best_effect_sound
 device_backup device_wipe wipe_confirmation sticks3 sticks3_level sticks3_power
 motion_activity sensor_idle launch_feedback launch_motion motion_replay
@@ -88,6 +90,7 @@ pm1_idle power_key_pipeline idle_power_pipeline sensor_idle_pipeline save_paths
 cpu_power_pipeline hil_isolation mic_isolation usb_flush hil_rig_upload usb_command_pipeline
 ui_render hil_themes hil_milestones hil_commands usb_config wear_pipeline usb_standby_pipeline keep_awake status_feeds
 codec_handover sleep_scale hil_since_boot main_layout
+analysis_pipeline analysis_lifecycle analysis_worker analysis_result_persistence calibration_export analysis_release
 '''.split()
 
 # Python unit tests: the private-corpus runner's synthetic contracts (no
@@ -187,6 +190,14 @@ def suites(build, cxx):
         # Some harnesses compile a test_<name>.cpp around the extracted code.
         result.append(Suite(f'check_{name}', [[sys.executable, f'{TESTS}/check_{name}.py']],
                             [f'check_{name}.py', f'test_{name}.cpp']))
+    for name in ('calibration_audio', 'local_firmware', 'audio_capture', 'replay_calibration'):
+        result.append(Suite(f'test_{name}', [[sys.executable, f'scripts/test_{name}.py']], []))
+    # Separate RTOS stand-ins give the result worker real thread ownership.
+    exe = str(build / 'analysis_result_service')
+    result.append(Suite('test_analysis_result_service', [
+        [*cxx, *SANITIZE, '-pthread', '-Ifirmware/tests/fakes/analysis_result_host', *INCLUDES,
+         f'{TESTS}/test_analysis_result_service.cpp', '-o', exe],
+        [exe]], ['test_analysis_result_service.cpp']))
     # The filter is compiled once and linked into every suite that uses it.
     vqf_flags = [*SANITIZE, '-DVQF_SINGLE_PRECISION', *INCLUDES]
     vqf = SharedStep('vqf.o', [*cxx, *vqf_flags, '-c', 'firmware/LaunchLabMini/src/vqf/vqf.cpp',

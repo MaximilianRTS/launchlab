@@ -38,6 +38,8 @@ def function(source, name, result="void", static=True):
 
 PREFIX = r'''
 #include "controls.h"
+#include "analysis_mode.h"
+static AnalysisMode::Session analysis;
 #include "start_mark_reference.h"
 #include "usb_command_guard.h"
 #include "accel_range.h"
@@ -72,6 +74,7 @@ static bool bluetoothOn=false;static bool bluetoothAtBoot=false;
 using Controls::Page;
 static uint32_t clockMs=1000;
 static uint32_t millis(){return clockMs;}
+static uint64_t esp_timer_get_time(){return uint64_t(clockMs)*1000;}
 static unsigned normalWrites=0,normalLoads=0,statusReads=0,draws=0,levelPolls=0,restarts=0;
 static void delay(unsigned ms){clockMs+=ms;}
 static void normal(){++normalWrites;}
@@ -103,9 +106,29 @@ static IdleFake &pm1Idle(){static IdleFake idle;return idle;}
 struct {bool available=true;bool lock(){return available;}void unlock(){}bool quiet(uint32_t){return true;}}imuAcquisition;
 static Controls::State controls;static Controls::Gesture gestureA,gestureB;
 // The mic is off unless a test says otherwise: leaving its page stops it.
-static struct {bool running=false;bool off()const{return !running;}bool holdsSleep(uint32_t)const{return running;}void dump(){}void askBench(){}void armTape(){}void sendTape(){}void launch(uint32_t,bool,float,uint64_t,uint64_t){}}micListener;
+static struct {void freezeTrace(){} const void *trace()const{return nullptr;}
+  const void *audioMetadata(uint32_t)const{return nullptr;}
+  bool running=false;bool off()const{return !running;}bool holdsSleep(uint32_t)const{return running;}void dump(){}void askBench(){}void armTape(){}void sendTape(){}void launch(uint32_t,bool,float,uint64_t,uint64_t){}}micListener;
 static unsigned micPageLeaves=0;static void leaveMicPage(){++micPageLeaves;micListener.running=false;}
 static void tickMicPage(){}
+static struct {
+  bool busy() const {return false;}
+  bool ready() const {return false;}
+  bool recordPending() const {return false;}
+  bool tick(bool,const AnalysisMode::Session &,const void *,uint64_t,const void *) {return false;}
+} analysisResults;
+static void logAnalysisResults(){}
+static void captureCalibration(bool){}
+static void observeForecastCheckpoint(unsigned){}
+static struct {void reset(){}} shadowLog;
+static void captureStoppedCalibration(){}
+// Analysis capture itself is exercised by check_analysis_lifecycle.py.
+static bool calibrationCapturePending=false;
+static uint32_t lastCaptureTry=0;
+static bool interruptAnalysis(uint64_t){return true;}
+static void exportLaunchWavs(){}
+static void exportCalibrationBatch(){}
+static void exportCalibration(){}
 static WipeConfirmation wipeConfirmation;
 static bool wipeFailed=false,wipeBlocked=false,wipeComplete=false;
 static bool wipeCheckpointHeld=false,wipeBootRecovery=false,wipeRestartRequested=false;
@@ -152,6 +175,9 @@ struct Snapshot {
   bool ready=true,suspended=false;
   uint8_t pin=1;const char *endName()const{return "gap";}const char *stateName()const{return "Ready";}
 };
+static void followAnalysisLaunch(const Snapshot &event){
+  micListener.launch(event.launches,event.valid,event.resultRpm,event.burstStartHostUs,event.burstEndHostUs);
+}
 struct Acquisition {
   Snapshot state;bool failBegin=false,advanceBeforeAck=false,launchBeforeAck=false,suspended=false;
   unsigned begins=0,resumes=0,eventDrains=0;std::deque<Snapshot> events;
@@ -213,7 +239,7 @@ static void saveHistory(uint32_t,const Snapshot &){normal();}
 // Settings saves and the orphaned-checkpoint release must never run after an
 // erase attempt: one would write old RAM, the other resume the held checkpoint.
 static void saveSettings(uint32_t,const Snapshot &){normal();}static void restartForBluetooth(uint32_t,const Snapshot &){}static void releaseOrphanCheckpoint(uint32_t,const Snapshot &){normal();}
-struct SettingsSave {static constexpr uint16_t Bonds=4096,Bluetooth=2048;enum Item:uint16_t {Pin=128,ExtPower=256};void mark(uint16_t){normal();}bool pending()const{return false;}}settingsSave;
+struct SettingsSave {static constexpr uint16_t Bonds=4096,Bluetooth=2048;enum Item:uint32_t {Pin=128,ExtPower=256,AnalysisResult=65536};void mark(uint32_t){normal();}bool pending()const{return false;}}settingsSave;
 static void pollBattery(uint32_t,const Snapshot &){normal();}static void tickPowerLog(uint32_t,const Snapshot &){normal();}static void tickHistoryLog(uint32_t,const Snapshot &){normal();}
 static void pollUsbAwake(uint32_t,const Snapshot &){normal();}static void tickSound(const Snapshot &){normal();}
 // Side-key power-off has its own production harness; its wipe guard is tested there.
