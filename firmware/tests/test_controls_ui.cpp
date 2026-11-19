@@ -44,7 +44,10 @@ struct LGFXBase {
   }
   void drawString(const char *text,int x,int y,int font) {
     const int glyph=font==4?18:6,height=font==4?26:font==2?16:8;
-    const int width=font==2?font2Width(text):int(std::strlen(text))*glyph;
+    // Glyphs, not bytes: another language passes Font 1 its CP437 letters as
+    // two-byte UTF-8 (ui_text.h); English is ASCII either way.
+    int glyphs=0;for(const char *c=text;*c;++c)glyphs+=(uint8_t(*c)&0xC0)!=0x80;
+    const int width=font==2?font2Width(text):glyphs*glyph;
     const int left=datum==top_left?x:datum==top_right?x-width:x-width/2;
     const int right=datum==top_left?x+width:datum==top_right?x:x+(width+1)/2;
     assert(left>=0 && right<=135 && y>=0 && y+height<=240);
@@ -283,6 +286,83 @@ int main() {
     for(unsigned s=0;s<Controls::SETTING_COUNT;++s)for(unsigned v=0;v<256;++v) {
       ControlsUI::value(shown,sizeof(shown),s,v);ControlsUI::protocolValue(sent,sizeof(sent),s,v);assert(!strcmp(shown,sent));
     }
+  }
+  // German (ui_text_de.h): every screen here again, each text in its place
+  // as drawn (umlauts in Font 1, spelled out in Font 2), with no text that
+  // needed a smaller font, English or a cut (ControlsUI::fallbacks), and
+  // Font 1 in the body inside x 10..125.
+  {
+    UiText::current()=UiText::Lang::German;ControlsUI::fallbacks=0;unsigned german=0;
+    unsigned misfits=0;
+    // Names each text that does not fit, then fails once at the end.
+    auto fits=[&](const lgfx::LGFXBase &g,bool body=true){
+      for(unsigned i=0;body && i<g.spans.size();++i)if(g.spans[i][3]==1 && g.spans[i][2]>=31 && g.spans[i][2]<213 && (g.spans[i][0]<10 || g.spans[i][1]>125)) {
+        std::cerr<<"German Font 1 line outside x 10..125: \""<<g.texts[i]<<"\" ("<<g.spans[i][0]<<".."<<g.spans[i][1]<<")\n";++misfits;
+      }
+      if(ControlsUI::fallbacks) {
+        const auto &o=ControlsUI::lastOverflow;
+        std::cerr<<"German text needs a fallback: \""<<o.text<<"\" font "<<o.font<<", "<<o.width<<" px, room "<<o.room<<"\n";
+        ++misfits;ControlsUI::fallbacks=0;
+      }
+      ++german;
+    };
+    for(unsigned row=0;row<MENU_COUNT;++row){lgfx::LGFXBase g;ControlsUI::list(g,UiText::t(UiText::Text::Menu),ControlsUI::MENU,MENU_COUNT,row,MENU_GROUPS);fits(g);}
+    for(unsigned row=0;row<4;++row){lgfx::LGFXBase g;ControlsUI::list(g,UiText::t(UiText::Text::MenuHistory),ControlsUI::HISTORY,4,row);fits(g);}
+    for(unsigned row=0;row<=SETTING_COUNT;++row){lgfx::LGFXBase g;State state;state.setting=row;ControlsUI::settings(g,state,values);fits(g);}
+    for(unsigned row=0;row<SETTING_COUNT;++row)if(editable(row))for(unsigned value=extremes[row][0];value<=extremes[row][1];++value) {
+      values[row]=uint8_t(value);
+      {lgfx::LGFXBase g;State state;state.setting=row;state.draft=value;ControlsUI::editor(g,state,true,row==1 || row==4);fits(g);
+       assert(g.valueEdges.size()==2 && g.valueEdges[0]>=8 && g.valueEdges[1]<=127);}
+      {lgfx::LGFXBase g;State state;state.setting=row;ControlsUI::settings(g,state,values);fits(g);}
+    }
+    WipeConfirmation flow;flow.begin(1000);
+    for(unsigned stage=0;stage<3;++stage) {
+      flow.tick(1001+stage,false,false);
+      for(bool failed:{false,true})for(bool blocked:{false,true}){lgfx::LGFXBase g;ControlsUI::wipe(g,flow,1001+stage,failed,blocked,false);fits(g);}
+      if(stage<2)assert(flow.confirm(1001+stage));
+    }
+    flow.tick(1010,false,false);flow.tick(1011,true,false);
+    {lgfx::LGFXBase g;ControlsUI::wipe(g,flow,1500,false,false,false);fits(g);}
+    flow.cancel();
+    for(bool complete:{false,true}){lgfx::LGFXBase g;ControlsUI::wipe(g,flow,5000,true,true,complete);fits(g);}
+    for(bool start:{false,true}){lgfx::LGFXBase g;ControlsUI::session(g,start);fits(g);}
+    for(bool forget:{false,true}){lgfx::LGFXBase g;ControlsUI::forgetPhones(g,forget);fits(g);}
+    for(bool enable:{false,true}){lgfx::LGFXBase g;ControlsUI::enableBluetooth(g,enable);fits(g);}
+    for(bool automatic:{false,true}){lgfx::LGFXBase g;ControlsUI::comparison(g,123456,automatic);fits(g);}
+    {lgfx::LGFXBase g;ControlsUI::restarting(g);fits(g);}
+    for(unsigned row=0;row<4;++row)for(bool on:{false,true})for(bool linked:{false,true})for(int bonds:{0,1,3}){lgfx::LGFXBase g;ControlsUI::bluetoothPage(g,row,on,linked,"BEYBLADE_TOOL01",bonds);fits(g);}
+    for(bool on:{false,true})for(bool app:{false,true})for(bool button:{false,true})for(bool tournament:{false,true})for(unsigned synced:{0u,65535u}) {
+      ControlsUI::PassView v;v.on=on;v.app=app && on;v.phone=v.app;v.button=button;v.tournament=tournament;v.waiting=65535;v.synced=synced;
+      lgfx::LGFXBase g;ControlsUI::beybladeX(g,v);fits(g);
+    }
+    for(auto flash:{ControlsUI::FlashInfo{8388608,1900000,0x330000},ControlsUI::FlashInfo{}})for(bool valid:{false,true})for(bool charging:{false,true}) {
+      lgfx::LGFXBase g;ControlsUI::device(g,valid,100,4100,valid,charging,flash);fits(g);
+    }
+    {lgfx::LGFXBase g;ControlsUI::about(g,"D4:8A:FC:12:34:56",65535);fits(g,false);}  // the site address is as wide in English
+    for(UiText::Text label:{UiText::Text::HoldEnterTournament,UiText::Text::HoldExitTournament,UiText::Text::HoldSkipBattle,UiText::Text::HoldOk,
+        UiText::Text::HoldEnterAnalysis,UiText::Text::HoldExitAnalysis,UiText::Text::HoldCancelChange,UiText::Text::Back}) {
+      lgfx::LGFXBase g;ControlsUI::hold(g,UiText::t(label),500,1000);fits(g);
+    }
+    for(UiText::Text label:{UiText::Text::FooterViewExit,UiText::Text::FooterMainMenu,UiText::Text::FooterWonLost,UiText::Text::FooterRecapMenu,UiText::Text::PassFooter}) {
+      lgfx::LGFXBase g;ControlsUI::footer(g,UiText::t(label));fits(g);
+    }
+    {
+      WearCheck::Session wear;const WearCheck::Tilt level{true,0.8f,0.05f,-0.02f},off{true,18.5f,0.8f,0.6f},none{false,0,0,0};
+      for(const auto &t:{level,off,none})for(bool ready:{false,true})for(UiText::Text mount:{UiText::Text::WearTopMount,UiText::Text::WearSidecarMount}) {
+        lgfx::LGFXBase g;ControlsUI::wearCheck(g,wear,t,t,ready,UiText::t(mount),UiText::t(UiText::Text::WearSidecarInstall));fits(g);
+      }
+      WearCheck::Session fast;uint32_t n=0;
+      for(unsigned i=0;i<3;++i)fast.observePull(++n,true,12345+i*1111,level);
+      for(unsigned i=0;i<3;++i)fast.observePull(++n,true,29876-i*1111,WearCheck::Tilt{true,87.9f,0.0f,1.0f});
+      for(unsigned i=0;i<3;++i)fast.observePull(++n,true,10001+i,WearCheck::Tilt{true,88.4f,0.0f,-1.0f});
+      assert(fast.complete());
+      {lgfx::LGFXBase g;ControlsUI::wearCheck(g,fast,level,level);fits(g);}
+    }
+    assert(!misfits);
+    // A text that cannot fit falls back: a smaller font, then English, then a cut.
+    {lgfx::LGFXBase g;ControlsUI::drawText(g,"\xC3\x9C" "berl\xC3\xA4nge, die so nie passt",67,100,2);assert(ControlsUI::fallbacks==1 && g.spans.back()[1]<=135);}
+    UiText::current()=UiText::Lang::English;
+    std::cout<<"PASS: "<<german<<" German renders fit, no fallback\n";
   }
   std::cout<<"PASS: "<<renders<<" actual menu/editor/confirmation/hold renders fit135x240; one-line footers, conservative glyph bounds\n";
 }
