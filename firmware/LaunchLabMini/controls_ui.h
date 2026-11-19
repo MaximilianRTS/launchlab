@@ -22,7 +22,8 @@ static constexpr Text HISTORY[]={Text::HistoryLaunches,Text::HistoryPullTrend,Te
 // By Controls::Setting value; the list shows them in Controls::ORDER.
 static constexpr Text SETTINGS[]={Text::SettingSleep,Text::SettingRpm,Text::SettingBrightness,Text::SettingFlip,Text::SettingSensor,Text::SettingTheme,
   Text::SettingBestEffect,Text::SettingCelebrate,Text::SettingSound,Text::SettingMount,Text::SettingShakeWake,Text::SettingWipeAll,Text::SettingAbout,
-  Text::SettingBatteryIcon,Text::SettingBluetooth,Text::SettingMinRpm,Text::Back};
+  Text::SettingBatteryIcon,Text::SettingBluetooth,Text::SettingMinRpm,Text::SettingLanguage,Text::Back};
+static_assert(Controls::LANGUAGES==UiText::LANGS,"Language cycles through every language");
 static_assert(sizeof(SETTINGS)/sizeof(SETTINGS[0])==Controls::SETTING_COUNT+1,"one label per setting, then Back");
 // Set by the UI owner before rendering: the visible theme's colors, the
 // names the Theme row shows (custom themes; the built-in names otherwise),
@@ -104,6 +105,8 @@ inline void value(char *out,unsigned length,unsigned setting,unsigned value,UiTe
     case Controls::Setting::About:snprintf(out,length,say(Text::ValueFirmware),versionLength(runtime),runtime);break;
     case Controls::Setting::BatteryIcon:snprintf(out,length,"%s",onOff(value));break;
     case Controls::Setting::MinRpm:MinRpm::label(out,length,uint8_t(value));break;
+    // Each language by its own name, in every language.
+    case Controls::Setting::Language:snprintf(out,length,"%s",UiText::name(UiText::Lang(value)));break;
   }
 }
 inline void value(char *out,unsigned length,unsigned setting,unsigned v){value(out,length,setting,v,UiText::current());}
@@ -111,14 +114,15 @@ inline void protocolValue(char *out,unsigned length,unsigned setting,unsigned v)
 inline void settings(lgfx::LGFXBase &g,const Controls::State &state,const uint8_t *values) {
   heading(g,tr(Text::MenuSettings));char text[24];
   // Pages of five rows (Controls::ORDER): general, appearance, then the
-  // unit's own six: Mounting, Flip display, Battery icon, Wipe all, About and
-  // Back, whose sixth row takes the space the "B Next" hint has on the others.
+  // unit's own seven: Language, Mounting, Flip display, Battery icon, Wipe
+  // all, About and Back, in the space the "B Next" hint has on the others
+  // and 28 px apart, not 31.
   using Controls::PAGE_ROWS;using Controls::LAST_PAGE;
   const unsigned at=Controls::position(state.setting),first=at<LAST_PAGE?at/PAGE_ROWS*PAGE_ROWS:LAST_PAGE,
     last=first<LAST_PAGE?first+PAGE_ROWS-1:Controls::ROWS;
   for(unsigned p=first;p<=last;++p) {
     const unsigned i=Controls::rowAt(p);
-    const int y=33+int(p-first)*31;
+    const int y=33+int(p-first)*(last-first<PAGE_ROWS?31:28);
     if(i==state.setting)g.drawRoundRect(4,y-3,g.width()-8,30,4,colors.accent);
     g.setTextColor(i==state.setting?colors.accent:colors.text,colors.background);
     drawText(g,tr(SETTINGS[i]),g.width()/2,y,2);

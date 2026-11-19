@@ -359,7 +359,7 @@ inline void draw(lgfx::LGFX_Sprite &g,unsigned index,const Look &look,bool flip)
     Controls::State state;
     // A new unit's settings: every value is its default.
     const uint8_t values[]={InactivityTimer::DEFAULT_MINUTES,uint8_t(RpmEstimator::DEFAULT_MODE),Brightness::DEFAULT_PERCENT,uint8_t(flip),0,uint8_t(look.theme),uint8_t(Appearance::Effect::Random),uint8_t(Milestones::DEFAULT_MODE),0,0,uint8_t(InactivityTimer::SHAKE_WAKE_DEFAULT),
-      0,0,uint8_t(Controls::BATTERY_ICON_DEFAULT),0,MinRpm::DEFAULT_STEPS};  // Wipe all and About have no value; Bluetooth is Off
+      0,0,uint8_t(Controls::BATTERY_ICON_DEFAULT),0,MinRpm::DEFAULT_STEPS,uint8_t(UiText::current())};  // Wipe all and About have no value; Bluetooth is Off
     static_assert(sizeof(values)==Controls::SETTING_COUNT,"a default for every setting");
     static const Milestones::Config defaults;ControlsUI::milestones=&defaults;
     ControlsUI::runtime="0.20.8-sticks3-songs-pm";  // fixed, so a release number never moves a pinned frame

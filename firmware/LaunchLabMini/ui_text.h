@@ -42,7 +42,7 @@ namespace UiText {
   X(SettingSleep,"Sleep after") X(SettingRpm,"RPM method") X(SettingBrightness,"Brightness") X(SettingFlip,"Flip display") \
   X(SettingSensor,"Sensor profile") X(SettingTheme,"Theme") X(SettingBestEffect,"Best effect") X(SettingCelebrate,"Celebrate") \
   X(SettingSound,"Sound") X(SettingMount,"Mounting") X(SettingShakeWake,"Shake to wake") X(SettingWipeAll,"Wipe all") \
-  X(SettingAbout,"About") X(SettingBatteryIcon,"Battery icon") X(SettingBluetooth,"Bluetooth") X(SettingMinRpm,"Min RPM") \
+  X(SettingAbout,"About") X(SettingBatteryIcon,"Battery icon") X(SettingBluetooth,"Bluetooth") X(SettingMinRpm,"Min RPM") X(SettingLanguage,"Language") \
   /* Settings values */ \
   X(ValueMinutes,"%u min") /* minutes */ \
   X(ValueRpmThreeTurn,"3-turn average") X(ValueRpmOneTurn,"1-turn peak") \
@@ -284,6 +284,9 @@ namespace UiText {
 // Languages by stable id (a saved setting will keep these numbers).
 enum class Lang:uint8_t {English,German};
 static constexpr unsigned LANGS=2;
+// Each language by its own name (the Language setting's values).
+static constexpr const char *NAMES[LANGS]={"English","Deutsch"};
+inline const char *name(Lang lang){return unsigned(lang)<LANGS?NAMES[unsigned(lang)]:NAMES[0];}
 static constexpr const Table *TABLES[LANGS]={&ENGLISH,&GERMAN};
 
 #ifndef LAUNCHLAB_UI_LANG

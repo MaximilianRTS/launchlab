@@ -56,6 +56,7 @@ namespace Lab {inline PowerLab::Knobs knobs;inline bool running=false,displayAsl
 #include "shake_wake_setting.h"
 #include "battery_icon_setting.h"
 #include "min_rpm_setting.h"
+#include "language_setting.h"
 #include "display_orientation.h"
 #include "sensor_profile_setting.h"
 #include "start_mark_reference.h"
@@ -921,6 +922,7 @@ static uint8_t settingValue(unsigned row) {
     case S::BatteryIcon:return uint8_t(batteryIcon);
     case S::Bluetooth:return uint8_t(bluetoothOn);
     case S::MinRpm:return minRpmSteps;
+    case S::Language:return uint8_t(UiText::current());
     case S::WipeAll:case S::About:break;
   }
   return 0;
@@ -1699,6 +1701,7 @@ static void writeSettings() {
   if((items&SettingsSave::ShakeWake) && ShakeWakeSetting::save(prefs,shakeToWake))saved|=SettingsSave::ShakeWake;
   if((items&SettingsSave::BatteryIcon) && BatteryIconSetting::save(prefs,batteryIcon))saved|=SettingsSave::BatteryIcon;
   if((items&SettingsSave::MinRpm) && MinRpmSetting::save(prefs,minRpmSteps))saved|=SettingsSave::MinRpm;
+  if((items&SettingsSave::Language) && LanguageSetting::save(prefs,uint8_t(UiText::current())))saved|=SettingsSave::Language;
   if((items&SettingsSave::Bluetooth) && BluetoothSetting::save(prefs,bluetoothOn))saved|=SettingsSave::Bluetooth;
   if((items&SettingsSave::Bonds) && BleLink::saveBonds(prefs))saved|=SettingsSave::Bonds;
   if((items&SettingsSave::Name) && BleLink::saveName(prefs))saved|=SettingsSave::Name;
@@ -1758,6 +1761,11 @@ static bool applySetting(unsigned setting,uint8_t value,bool &changed) {
     case Controls::Setting::BatteryIcon:changed=bool(value)!=batteryIcon;batteryIcon=value;break;
     // The optical owner takes the new floor on the next loop pass.
     case Controls::Setting::MinRpm:applied=MinRpm::valid(value);changed=applied && value!=minRpmSteps;if(changed)minRpmSteps=value;break;
+    // The next frame draws in the new language.
+    case Controls::Setting::Language:
+      applied=value<UiText::LANGS;changed=applied && UiText::Lang(value)!=UiText::current();
+      if(changed)UiText::current()=UiText::Lang(value);
+      break;
     case Controls::Setting::Bluetooth:changed=bool(value)!=bluetoothOn;bluetoothOn=value;break;
     case Controls::Setting::Sensor:
       applied=StickS3SensorProfile::valid(value);changed=applied && StickS3SensorProfile::Mode(value)!=sensorProfile;
@@ -2856,7 +2864,7 @@ LOOP_HELPER static void exportBackup() {
   if(!contents){Serial.println("BACKUP_ERROR out_of_memory");return;}
   contents->practice=practice;contents->look=appearance;contents->bests=personalBests;
   contents->hasMotion=referenceMotion.valid();if(contents->hasMotion)contents->motion=referenceMotion;
-  contents->settings={inactivity.minutes(),brightnessPercent,rpmEstimator,sensorProfile,displayFlipped,mountMode,shakeToWake,batteryIcon,minRpmSteps};
+  contents->settings={inactivity.minutes(),brightnessPercent,rpmEstimator,sensorProfile,displayFlipped,mountMode,shakeToWake,batteryIcon,minRpmSteps,uint8_t(UiText::current())};
   contents->hasThemes=!themeLibrary.empty();contents->themes=themeLibrary;
   contents->hasMilestones=!milestones.isDefault();contents->milestones=milestones;
   contents->hasEffectSet=!effectSet.isDefault();contents->effectSet=effectSet;
@@ -3598,6 +3606,8 @@ void setup() {
   unusedWakes=prefs.getUChar(UnusedWakes::KEY,0);
   if(!BatteryIconSetting::load(prefs,batteryIcon))Serial.println("BATTERY_ICON_SETTING_NOTICE invalid_saved_value_retained_using_on");
   if(!MinRpmSetting::load(prefs,minRpmSteps))Serial.printf("MIN_RPM_SETTING_NOTICE invalid_saved_value_retained_using_%u\n",unsigned(MinRpm::rpm(minRpmSteps)));
+  {uint8_t language=0;if(!LanguageSetting::load(prefs,language))Serial.println("LANGUAGE_SETTING_NOTICE invalid_saved_value_retained_using_english");
+   UiText::current()=UiText::Lang(language);}
   if(!BattlesSetting::load(prefs,battlesOn,battleMatchTo))Serial.println("BATTLES_SETTING_NOTICE invalid_saved_value_retained_using_on");
   if(!DisplayFlipSetting::load(prefs,displayFlipped))Serial.println("DISPLAY_SETTING_NOTICE invalid_record_retained_using_flip_off_default");
   if(!MountOrientationSetting::load(prefs,mountMode))Serial.println("MOUNT_SETTING_NOTICE invalid_record_retained_using_top_default");
@@ -4006,6 +4016,8 @@ static bool validValue(unsigned id,uint8_t v) {
     case S::Celebrate:case S::Sound:return v<3;
     case S::Mount:return MountOrientation::valid(v);
     case S::MinRpm:return MinRpm::valid(v);
+    // Not on the Bluetooth protocol yet: the app's setting list predates it.
+    case S::Language:return false;
     default:return Controls::editable(id); // applySetting checks the rest.
   }
 }
@@ -4047,7 +4059,7 @@ LOOP_HELPER static size_t options(unsigned id,uint8_t *out,size_t capacity) {
     case S::BestEffect:
       EffectSet::choices(appearance.effect,effectSet.mask(),[&](Appearance::Effect e){at=putOption(out,at,capacity,id,uint8_t(e));});
       break;
-    case S::WipeAll:case S::About:break;
+    case S::WipeAll:case S::About:case S::Language:break;
   }
   return at;
 }
@@ -4090,7 +4102,7 @@ LOOP_HELPER static int32_t run(uint8_t op,const uint8_t *args,size_t length,uint
       *p++=0; // levelSet: no level reference in this firmware
       break;
     }
-    case 2:for(unsigned i=0;i<Controls::SETTING_COUNT;++i)if(Controls::editable(i)){*p++=uint8_t(i);*p++=settingValue(i);}break;
+    case 2:for(unsigned i=0;i<Controls::SETTING_COUNT;++i)if(Controls::editable(i) && i!=unsigned(Controls::Setting::Language)){*p++=uint8_t(i);*p++=settingValue(i);}break;
     case 3:
       if(length!=2)return -INVALID;
       *p++=uint8_t(setSetting(args[0],args[1]));

@@ -26,7 +26,7 @@ static constexpr Entry GERMAN_ENTRIES[]={
   {Text::SettingSleep,"Standby nach"},{Text::SettingRpm,"RPM-Methode"},{Text::SettingBrightness,"Helligkeit"},{Text::SettingFlip,"Anzeige drehen"},
   {Text::SettingSensor,"Sensorprofil"},{Text::SettingTheme,"Farbschema"},{Text::SettingBestEffect,"Bestwert-Effekt"},{Text::SettingCelebrate,"Jubel"},
   {Text::SettingSound,"Ton"},{Text::SettingMount,"Montage"},{Text::SettingShakeWake,"Schütteln weckt"},{Text::SettingWipeAll,"Alles löschen"},
-  {Text::SettingAbout,"Info"},{Text::SettingBatteryIcon,"Akku-Symbol"},{Text::SettingBluetooth,"Bluetooth"},{Text::SettingMinRpm,"Min. RPM"},
+  {Text::SettingAbout,"Info"},{Text::SettingBatteryIcon,"Akku-Symbol"},{Text::SettingBluetooth,"Bluetooth"},{Text::SettingMinRpm,"Min. RPM"},{Text::SettingLanguage,"Sprache"},
 
   {Text::ValueMinutes,"%u Min."},
   {Text::ValueRpmThreeTurn,"Mittel 3 Umdr."},{Text::ValueRpmOneTurn,"Spitze 1 Umdr."},
