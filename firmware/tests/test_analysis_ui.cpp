@@ -403,10 +403,10 @@ int main(){
                    "READY",true,nullptr,&ranked,samples,&winner,false);
   assert(finalFrame.drew("50s") && !finalFrame.drew("600s"));checkOverlap(finalFrame);
   for(const auto &point:finalFrame.pixels)assert(point[2]!=finishInk && point[2]!=colors.text);
-  // German (ui_text_de.h): the screens above again, every text on screen,
+  // Each other language (ui_text_de.h, ui_text_it.h): the screens above again, every text on screen,
   // none on another and none needing a smaller font, English or a cut.
-  {
-    UiText::current()=UiText::Lang::German;UiDraw::fallbacks=0;unsigned german=0;
+  for(UiText::Lang language:{UiText::Lang::German,UiText::Lang::Italian}) {
+    UiText::current()=language;UiDraw::fallbacks=0;unsigned german=0;
     auto fits=[&](const lgfx::LGFXBase &g){
       checkOverlap(g);
       if(UiDraw::fallbacks)std::fprintf(stderr,"German: \"%s\" font %d, %d > %d px\n",UiDraw::lastOverflow.text,UiDraw::lastOverflow.font,UiDraw::lastOverflow.width,UiDraw::lastOverflow.room);
@@ -439,7 +439,7 @@ int main(){
       for(bool fitting:{false,true})for(bool failed:{false,true}){lgfx::LGFXBase g;AnalysisResultUI::draw(g,s,nullptr,fitting,failed,colors);fits(g);}
     }
     UiText::current()=UiText::Lang::English;
-    std::cout<<"PASS: "<<german<<" German analysis screens fit\n";
+    std::cout<<"PASS: "<<german<<" "<<UiText::name(language)<<" analysis screens fit\n";
   }
   delete samples;
   marked.freeze();bad.index=3;marked.add(bad);assert(marked.count()==3);

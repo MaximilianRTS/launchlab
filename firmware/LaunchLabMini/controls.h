@@ -46,7 +46,7 @@ static constexpr MenuRow MENU_ROWS_0209[]={HISTORY_ROW,NEW_SESSION_ROW,TOURNAMEN
 enum class Setting:uint8_t {Sleep,Rpm,Brightness,Flip,Sensor,Theme,BestEffect,Celebrate,Sound,Mount,ShakeWake,WipeAll,About,BatteryIcon,Bluetooth,MinRpm,Language};
 static constexpr unsigned SETTING_COUNT=17,ROWS=16;
 // The languages Language cycles through (UiText::Lang).
-static constexpr unsigned LANGUAGES=2;
+static constexpr unsigned LANGUAGES=3;
 static constexpr bool BATTERY_ICON_DEFAULT=true;
 // The pages with the corner battery: the Menu, History and Battles lists,
 // Settings, its editors and About. Not Main (owner, 2026-11-05), the history graphs, the

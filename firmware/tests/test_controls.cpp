@@ -92,7 +92,7 @@ int main() {
     const bool minRpm=row==unsigned(Setting::MinRpm);
     s.page=Page::Edit;s.setting=row;s.draft=row==0?3:row==2?40:minRpm?MinRpm::DEFAULT_STEPS:0;
     const unsigned original=s.draft,cycle=row==0 || row==2?10:row==5?Appearance::THEMES:row==6?EffectSet::count(s.offeredEffects)+2:row==7 || row==8?3:
-      minRpm?MinRpm::MAX_STEPS-MinRpm::MIN_STEPS+1:2;
+      minRpm?MinRpm::MAX_STEPS-MinRpm::MIN_STEPS+1:row==unsigned(Setting::Language)?LANGUAGES:2;
     for(unsigned i=0;i<cycle;++i)assert(s.tapB()==Effect::Preview);
     assert(s.draft==original);
   }

@@ -44,6 +44,13 @@ template<class G> int width(G &,const char *text,int font) {
 struct Dots {char base;int8_t left,right,row;};
 static constexpr Dots DOTS2[]={{'a',1,4,4},{'o',2,4,4},{'u',1,4,4},{'A',2,4,1},{'O',2,4,1},{'U',1,5,1}};
 static constexpr Dots DOTS4[]={{'a',3,9,2},{'o',4,9,2},{'u',4,9,2},{'A',4,10,-3},{'O',6,11,-3},{'U',5,11,-3}};
+// A grave or an acute over a lowercase vowel: two steps, each a pixel in
+// Font 2 and 2x2 in Font 4, in the rows the umlaut dots use, the upper step
+// at `left` (grave) or one step right of it (acute). Over i (which keeps its
+// own dot) and capitals none is drawn.
+struct Accent {char base;int8_t left,row;};
+static constexpr Accent ACCENTS2[]={{'a',2,3},{'e',2,3},{'o',2,3},{'u',2,3}};
+static constexpr Accent ACCENTS4[]={{'a',5,1},{'e',5,1},{'o',5,1},{'u',5,1}};
 template<class G> auto dots(G &g,const char *text,const char *shown,int x,int y,int font,int)
     ->decltype(g.getTextStyle().fore_rgb888,int(g.getTextDatum()),void()) {
   if(font!=2 && font!=4)return;
@@ -55,15 +62,21 @@ template<class G> auto dots(G &g,const char *text,const char *shown,int x,int y,
   char prefix[64];size_t n=0;
   for(const char *s=text;*s && n+3<sizeof(prefix);) {
     int len;const UiText::Glyph *glyph=UiText::glyphAt(s,len);s+=len;
-    if(!glyph || !glyph->dots){
+    if(!glyph || !glyph->mark){
       if(glyph)for(const char *a=glyph->ascii;*a;++a)prefix[n++]=*a;else prefix[n++]=len==1?s[-1]:'?';
       continue;
     }
     prefix[n]=0;
     const int at=left+width(g,prefix,font);
     prefix[n++]=glyph->ascii[0];
-    for(const Dots &d:font==4?DOTS4:DOTS2)if(d.base==glyph->ascii[0] && y+d.row>=0) {
-      g.fillRect(at+d.left,y+d.row,size,size,ink);g.fillRect(at+d.right,y+d.row,size,size,ink);
+    if(glyph->mark==UiText::DOTS) {
+      for(const Dots &d:font==4?DOTS4:DOTS2)if(d.base==glyph->ascii[0] && y+d.row>=0) {
+        g.fillRect(at+d.left,y+d.row,size,size,ink);g.fillRect(at+d.right,y+d.row,size,size,ink);
+      }
+    }
+    else for(const Accent &a:font==4?ACCENTS4:ACCENTS2)if(a.base==glyph->ascii[0]) {
+      const bool grave=glyph->mark==UiText::GRAVE;
+      g.fillRect(at+a.left+(grave?0:size),y+a.row,size,size,ink);g.fillRect(at+a.left+(grave?size:0),y+a.row+size,size,size,ink);
     }
   }
 }

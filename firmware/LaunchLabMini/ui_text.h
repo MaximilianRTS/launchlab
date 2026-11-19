@@ -279,15 +279,16 @@ template<size_t N> constexpr Table build(const Entry (&entries)[N]) {
 }
 }
 #include "ui_text_de.h"
+#include "ui_text_it.h"
 namespace UiText {
 
 // Languages by stable id (a saved setting will keep these numbers).
-enum class Lang:uint8_t {English,German};
-static constexpr unsigned LANGS=2;
+enum class Lang:uint8_t {English,German,Italian};
+static constexpr unsigned LANGS=3;
 // Each language by its own name (the Language setting's values).
-static constexpr const char *NAMES[LANGS]={"English","Deutsch"};
+static constexpr const char *NAMES[LANGS]={"English","Deutsch","Italiano"};
 inline const char *name(Lang lang){return unsigned(lang)<LANGS?NAMES[unsigned(lang)]:NAMES[0];}
-static constexpr const Table *TABLES[LANGS]={&ENGLISH,&GERMAN};
+static constexpr const Table *TABLES[LANGS]={&ENGLISH,&GERMAN,&ITALIAN};
 
 #ifndef LAUNCHLAB_UI_LANG
 #define LAUNCHLAB_UI_LANG 0
@@ -327,13 +328,16 @@ inline const char *local(const char *text) {
 // a letter is drawn as its base letter (`ascii`), and ui_draw.h puts the two
 // dots over the umlauts (`dots`); other accents are left off (é: e), ß is
 // "ss". ASCII text passes unchanged, so English draws exactly as before.
-struct Glyph {uint16_t unicode;uint8_t cp437;const char *ascii;bool dots;};
+// mark: what ui_draw.h puts over the base letter in Fonts 2 and 4 (0 none,
+// DOTS an umlaut, GRAVE, ACUTE).
+enum Mark:uint8_t {NONE=0,DOTS=1,GRAVE=2,ACUTE=3};
+struct Glyph {uint16_t unicode;uint8_t cp437;const char *ascii;uint8_t mark;};
 static constexpr Glyph GLYPHS[]={
   {0xC4,0x8E,"A",true},{0xD6,0x99,"O",true},{0xDC,0x9A,"U",true},{0xE4,0x84,"a",true},{0xF6,0x94,"o",true},{0xFC,0x81,"u",true},
   {0xDF,0xE1,"ss",false},
-  {0xE0,0x85,"a",false},{0xE1,0xA0,"a",false},{0xE2,0x83,"a",false},{0xE7,0x87,"c",false},{0xE8,0x8A,"e",false},{0xE9,0x82,"e",false},
-  {0xEA,0x88,"e",false},{0xEC,0x8D,"i",false},{0xED,0xA1,"i",false},{0xEE,0x8C,"i",false},{0xF1,0xA4,"n",false},{0xF2,0x95,"o",false},
-  {0xF3,0xA2,"o",false},{0xF4,0x93,"o",false},{0xF9,0x97,"u",false},{0xFA,0xA3,"u",false},{0xFB,0x96,"u",false},{0xC9,0x90,"E",false},
+  {0xE0,0x85,"a",GRAVE},{0xE1,0xA0,"a",ACUTE},{0xE2,0x83,"a",false},{0xE7,0x87,"c",false},{0xE8,0x8A,"e",GRAVE},{0xE9,0x82,"e",ACUTE},
+  {0xEA,0x88,"e",false},{0xEC,0x8D,"i",GRAVE},{0xED,0xA1,"i",ACUTE},{0xEE,0x8C,"i",false},{0xF1,0xA4,"n",false},{0xF2,0x95,"o",GRAVE},
+  {0xF3,0xA2,"o",ACUTE},{0xF4,0x93,"o",false},{0xF9,0x97,"u",GRAVE},{0xFA,0xA3,"u",ACUTE},{0xFB,0x96,"u",false},{0xC9,0x90,"E",false},
   {0xC7,0x80,"C",false},{0xD1,0xA5,"N",false},{0xEB,0x89,"e",false},{0xEF,0x8B,"i",false},{0xB0,0xF8,"`",false}};
 // The glyph at s (UTF-8), its length into len; nullptr for ASCII or a
 // character the table lacks.

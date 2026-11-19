@@ -160,10 +160,13 @@ static unsigned suite() {
 int main() {
   const unsigned renders=suite();
   std::cout<<"PASS: "<<renders<<" battle cards and Battles pages stay on screen with no two lines sharing pixels, at the record's limits and with the widest names\n";
-  // German (ui_text_de.h): the same cards, every text in its place.
-  UiText::current()=UiText::Lang::German;UiDraw::fallbacks=0;
+  // Each other language (ui_text_de.h, ui_text_it.h): the same cards, every text in its place.
+  for(UiText::Lang language:{UiText::Lang::German,UiText::Lang::Italian}) {
+  UiText::current()=language;UiDraw::fallbacks=0;
   const unsigned german=suite();
   if(UiDraw::fallbacks)std::fprintf(stderr,"German: %u text(s) did not fit, last font %d, %d > %d px\n",UiDraw::fallbacks,UiDraw::lastOverflow.font,UiDraw::lastOverflow.width,UiDraw::lastOverflow.room);
   assert(UiDraw::fallbacks==0);
-  std::cout<<"PASS: "<<german<<" German battle cards and pages fit\n";
+  std::cout<<"PASS: "<<german<<" "<<UiText::name(language)<<" battle cards and pages fit\n";
+  }
+  UiText::current()=UiText::Lang::English;
 }

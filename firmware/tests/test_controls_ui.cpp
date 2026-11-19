@@ -287,12 +287,12 @@ int main() {
       ControlsUI::value(shown,sizeof(shown),s,v);ControlsUI::protocolValue(sent,sizeof(sent),s,v);assert(!strcmp(shown,sent));
     }
   }
-  // German (ui_text_de.h): every screen here again, each text in its place
+  // Each other language (ui_text_de.h, ui_text_it.h): every screen here again, each text in its place
   // as drawn (umlauts in Font 1, spelled out in Font 2), with no text that
   // needed a smaller font, English or a cut (ControlsUI::fallbacks), and
   // Font 1 in the body inside x 10..125.
-  {
-    UiText::current()=UiText::Lang::German;ControlsUI::fallbacks=0;unsigned german=0;
+  for(UiText::Lang language:{UiText::Lang::German,UiText::Lang::Italian}) {
+    UiText::current()=language;ControlsUI::fallbacks=0;unsigned german=0;
     unsigned misfits=0;
     // Names each text that does not fit, then fails once at the end.
     auto fits=[&](const lgfx::LGFXBase &g,bool body=true){
@@ -362,7 +362,7 @@ int main() {
     // A text that cannot fit falls back: a smaller font, then English, then a cut.
     {lgfx::LGFXBase g;ControlsUI::drawText(g,"\xC3\x9C" "berl\xC3\xA4nge, die so nie passt",67,100,2);assert(ControlsUI::fallbacks==1 && g.spans.back()[1]<=135);}
     UiText::current()=UiText::Lang::English;
-    std::cout<<"PASS: "<<german<<" German renders fit, no fallback\n";
+    std::cout<<"PASS: "<<german<<" "<<UiText::name(language)<<" renders fit, no fallback\n";
   }
   std::cout<<"PASS: "<<renders<<" actual menu/editor/confirmation/hold renders fit135x240; one-line footers, conservative glyph bounds\n";
 }

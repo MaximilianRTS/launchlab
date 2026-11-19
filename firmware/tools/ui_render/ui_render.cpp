@@ -3,7 +3,7 @@
 // custom theme), and prints one FNV-1a 64 hash per frame. With an output
 // directory it also writes each frame as a PPM.
 //
-//   ui_render [--lang de] [--out DIR] [--custom HEX16x8 NAME] [--celebrations] [--legibility] [--settled] [--costs FILE]
+//   ui_render [--lang de|it] [--out DIR] [--custom HEX16x8 NAME] [--celebrations] [--legibility] [--settled] [--costs FILE]
 //             [--bench-hashes STEP_MS]
 //   ui_render --fx FILE.fx...
 //   ui_render --fx-sound FILE.fx...
@@ -67,7 +67,7 @@ int main(int argc,char **argv) {
       std::strncpy(custom.name,argv[++i],Palette::Custom::MAX_NAME);
     } else if(arg=="--celebrations")celebrations=true;
     else if(arg=="--battle")battle=true;
-    else if(arg=="--lang" && i+1<argc)UiText::current()=std::string(argv[++i])=="de"?UiText::Lang::German:UiText::Lang::English;
+    else if(arg=="--lang" && i+1<argc){const std::string l=argv[++i];UiText::current()=l=="de"?UiText::Lang::German:l=="it"?UiText::Lang::Italian:UiText::Lang::English;}
     else if(arg=="--analysis")analysis=true;
     else if(arg=="--legibility")legibility=true;
     else if(arg=="--settled")settled=true;
