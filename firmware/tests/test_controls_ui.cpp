@@ -223,7 +223,7 @@ int main() {
     lgfx::LGFXBase g;ControlsUI::hold(g,label,elapsed,1000);assert(g.footers==1);++renders;
   }
   auto noOverlap=[](const lgfx::LGFXBase &g){for(unsigned i=0;i<g.spans.size();++i)for(unsigned j=i+1;j<g.spans.size();++j){auto a=g.spans[i],b=g.spans[j];int ah=a[3]==4?26:a[3]==2?16:8,bh=b[3]==4?26:b[3]==2?16:8;assert(a[1]<=b[0] || b[1]<=a[0] || a[2]+ah<=b[2] || b[2]+bh<=a[2]);}};
-  assert(!strcmp(ControlsUI::MENU[Controls::BATTERY_ROW],"Device"));
+  assert(!strcmp(UiText::t(ControlsUI::MENU[Controls::BATTERY_ROW]),"Device"));
   for(auto flash:{ControlsUI::FlashInfo{8388608,1900000,0x330000},ControlsUI::FlashInfo{},ControlsUI::FlashInfo{8388608,0,0x330000},ControlsUI::FlashInfo{8388608,0x340000,0x330000},ControlsUI::FlashInfo{8388608,0x330000,0x330000}})
     for(bool valid:{false,true})for(int percent:{0,20,100})for(bool charging:{false,true}){
       lgfx::LGFXBase g;ControlsUI::device(g,valid,percent,4100,valid,charging,flash);assert(g.drew("Device") && g.drew("Flash"));noOverlap(g);
@@ -266,5 +266,23 @@ int main() {
   // The number keeps its leading zeros; with no bond, only B is offered.
   {lgfx::LGFXBase g;ControlsUI::comparison(g,7042,false);assert(g.drew("007 042") && g.footers==1 && g.drew("A confirm, B reject"));++renders;}
   {lgfx::LGFXBase g;ControlsUI::comparison(g,999999,true);assert(g.drew("999 999") && g.drew("B reject") && !g.drew("A confirm, B reject"));++renders;}
+  // UI text (ui_text.h): every key has its English text, and the Bluetooth
+  // options (protocolValue) keep the protocol's English names whatever the
+  // screen's language, the same text each setting's own label gives.
+  for(unsigned k=0;k<UiText::COUNT;++k)assert(UiText::ENGLISH[k] && *UiText::ENGLISH[k]);
+  {
+    using S=Controls::Setting;char shown[24],sent[24];
+    auto sends=[&](S s,unsigned v,const char *expected){ControlsUI::protocolValue(sent,sizeof(sent),unsigned(s),v);return !strcmp(sent,expected);};
+    for(unsigned m=0;m<2;++m)assert(sends(S::Rpm,m,RpmEstimator::label(RpmEstimator::Mode(m))));
+    for(unsigned m=0;m<2;++m)assert(sends(S::Sensor,m,StickS3SensorProfile::label(StickS3SensorProfile::Mode(m))));
+    for(unsigned m=0;m<Milestones::MODES;++m)assert(sends(S::Celebrate,m,Milestones::label(Milestones::Mode(m))));
+    for(unsigned m=0;m<Appearance::SOUNDS;++m)assert(sends(S::Sound,m,Appearance::label(Appearance::Sound(m))));
+    for(unsigned m=0;m<2;++m)assert(sends(S::Mount,m,MountOrientation::label(MountOrientation::Mode(m))));
+    for(unsigned e=0;e<Appearance::EFFECTS;++e)assert(sends(S::BestEffect,e,Appearance::label(Appearance::Effect(e))));
+    for(S s:{S::Flip,S::ShakeWake,S::Bluetooth,S::BatteryIcon}){assert(sends(s,0,"Off") && sends(s,1,"On"));}
+    for(unsigned s=0;s<Controls::SETTING_COUNT;++s)for(unsigned v=0;v<256;++v) {
+      ControlsUI::value(shown,sizeof(shown),s,v);ControlsUI::protocolValue(sent,sizeof(sent),s,v);assert(!strcmp(shown,sent));
+    }
+  }
   std::cout<<"PASS: "<<renders<<" actual menu/editor/confirmation/hold renders fit135x240; one-line footers, conservative glyph bounds\n";
 }

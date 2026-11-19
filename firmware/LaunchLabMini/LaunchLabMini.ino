@@ -1017,14 +1017,14 @@ LOOP_HELPER static void draw(const Snapshot &s) {
   view.setTextColor(colors.text,colors.background);
   if(tournamentMode) {
     ScreensUI::tournament(view,colors,s.ready && !s.signalFault,tournamentView==TournamentView::RecordingOnly,s.valid,s.resultRpm);
-    if(int32_t(tournamentHintUntil-millis())>0)ControlsUI::footer(view,"B View  Hold A Exit");
+    if(int32_t(tournamentHintUntil-millis())>0)ControlsUI::footer(view,UiText::t(UiText::Text::FooterViewExit));
   } else if(diagnostics) {
     ScreensUI::diagnostics(view,s.pin,s.last,s.minimum,s.maximum,s.rate);
   } else if(historyPage) {
     if(!cacheAnalysis)view.fillScreen(colors.background);
     switch(controls.page) {
-      case Controls::Page::Menu:ControlsUI::list(view,"Menu",ControlsUI::MENU,Controls::MENU_COUNT,controls.menu,Controls::MENU_GROUPS);break;
-      case Controls::Page::HistoryMenu:ControlsUI::list(view,"History",ControlsUI::HISTORY,4,controls.history);break;
+      case Controls::Page::Menu:ControlsUI::list(view,UiText::t(UiText::Text::Menu),ControlsUI::MENU,Controls::MENU_COUNT,controls.menu,Controls::MENU_GROUPS);break;
+      case Controls::Page::HistoryMenu:ControlsUI::list(view,UiText::t(UiText::Text::MenuHistory),ControlsUI::HISTORY,4,controls.history);break;
       case Controls::Page::Settings:drawSettings(view);break;
       case Controls::Page::Edit:ControlsUI::editor(view,controls,settingsSaveError,
         (controls.setting==1 && controls.draft!=uint8_t(rpmEstimator)) ||
@@ -1053,8 +1053,8 @@ LOOP_HELPER static void draw(const Snapshot &s) {
         const auto rawTilt=level.reading(millis());
         drawnLevel=StickS3Level::forDisplay(rawTilt,visibleDisplayFlipped());
         ControlsUI::wearCheck(view,controls.wear,WearCheck::Tilt(rawTilt),WearCheck::Tilt(drawnLevel),wearDetectorReady(s),
-          liveMount==MountOrientation::Mode::Sidecar?"Sidecar mount":"Top mount",
-          liveMount==MountOrientation::Mode::Sidecar?"Top install?":"Sidecar install?");
+          UiText::t(liveMount==MountOrientation::Mode::Sidecar?UiText::Text::WearSidecarMount:UiText::Text::WearTopMount),
+          UiText::t(liveMount==MountOrientation::Mode::Sidecar?UiText::Text::WearTopInstall:UiText::Text::WearSidecarInstall));
         break;
       }
       case Controls::Page::Bluetooth:ControlsUI::bluetoothPage(view,controls.bluetoothRow,bluetoothOn,BleLink::connected(),BattlePass::NAME,BleLink::bondCount());break;
@@ -1074,7 +1074,7 @@ LOOP_HELPER static void draw(const Snapshot &s) {
             motionPending && !motionDemo,motionDemo,MotionReplay::playbackProgress(motionDemo?demoMotion:latestMotion,
               launchFeedback.position(replayFrameElapsed)),visibleDisplayFlipped(),colors,celebrationBadge(),
             motionDemo?MotionUI::demoCurve(demoMotion.rpm):latestCurve);
-          ControlsUI::footer(view,"Hold A Button  B Back");
+          ControlsUI::footer(view,UiText::t(UiText::Text::PassFooter));
         }
         else ControlsUI::beybladeX(view,BattlePassFeed::view());
         break;
@@ -1086,7 +1086,7 @@ LOOP_HELPER static void draw(const Snapshot &s) {
       motionPending && !motionDemo,motionDemo,MotionReplay::playbackProgress(motionDemo?demoMotion:latestMotion,
         launchFeedback.position(replayFrameElapsed)),visibleDisplayFlipped(),colors,celebrationBadge(),
       motionDemo?MotionUI::demoCurve(demoMotion.rpm):latestCurve);
-    ControlsUI::footer(view,"A Main  B Menu");
+    ControlsUI::footer(view,UiText::t(UiText::Text::FooterMainMenu));
     // Direct-draw fallback stays functional without reading the hardware LCD.
     if(screenReady && !motionDemo && !motionPending && bestEffect.badge()) {
       const int64_t effectStarted=esp_timer_get_time();effectReadUs=effectStarted;
@@ -1127,16 +1127,16 @@ LOOP_HELPER static void draw(const Snapshot &s) {
   if(!tournamentMode && (diagnostics || (!historyPage && !launchFeedback.shown())) &&
      battleCard!=Battle::Session::View::Pick && battleCard!=Battle::Session::View::Result) {
     view.setTextDatum(top_center);view.setTextColor(colors.muted,colors.background);
-    ControlsUI::footer(view,battleCard==Battle::Session::View::Versus?"A Won  B Lost":"A Recap  B Menu");
+    ControlsUI::footer(view,UiText::t(battleCard==Battle::Session::View::Versus?UiText::Text::FooterWonLost:UiText::Text::FooterRecapMenu));
   }
   const uint32_t now=millis();
   if(M5.BtnA.isPressed() && !gestureA.consumed && battleCard==Battle::Session::View::None &&
      (tournamentMode || (controls.page==Controls::Page::Main && !launchFeedback.shown())))
-    ControlsUI::hold(view,tournamentMode?"Exit tournament":"Enter tournament",now-M5.BtnA.lastChange(),1000);
+    ControlsUI::hold(view,UiText::t(tournamentMode?UiText::Text::HoldExitTournament:UiText::Text::HoldEnterTournament),now-M5.BtnA.lastChange(),1000);
   else if(M5.BtnB.isPressed() && !gestureB.consumed && battleCard!=Battle::Session::View::None)
-    ControlsUI::hold(view,battleCard==Battle::Session::View::Versus?"Skip battle":battleCard==Battle::Session::View::Pick?"Back":"OK",now-M5.BtnB.lastChange(),1000);
+    ControlsUI::hold(view,UiText::t(battleCard==Battle::Session::View::Versus?UiText::Text::HoldSkipBattle:battleCard==Battle::Session::View::Pick?UiText::Text::Back:UiText::Text::HoldOk),now-M5.BtnB.lastChange(),1000);
   else if(M5.BtnB.isPressed() && !gestureB.consumed && !tournamentMode)
-    ControlsUI::hold(view,controls.page==Controls::Page::Analysis?"Exit analysis":controls.page==Controls::Page::Main?"Enter analysis":controls.page==Controls::Page::Edit?"Cancel change":"Back",now-M5.BtnB.lastChange(),1000);
+    ControlsUI::hold(view,UiText::t(controls.page==Controls::Page::Analysis?UiText::Text::HoldExitAnalysis:controls.page==Controls::Page::Main?UiText::Text::HoldEnterAnalysis:controls.page==Controls::Page::Edit?UiText::Text::HoldCancelChange:UiText::Text::Back),now-M5.BtnB.lastChange(),1000);
   drawnCornerBattery=cornerBattery(now);ControlsUI::cornerBattery(view,drawnCornerBattery,controls.page==Controls::Page::Menu);
   BleLink::drawIcon(view,colors.muted,colors.ready,colors.background,colors.text);
   if(BluetoothSetting::restartNeeded(bluetoothOn,bluetoothAtBoot))ControlsUI::restarting(view);
@@ -4027,7 +4027,7 @@ LOOP_HELPER static int32_t setSetting(unsigned id,uint8_t value) {
   return OK;
 }
 LOOP_HELPER static size_t putOption(uint8_t *out,size_t at,size_t capacity,unsigned id,uint8_t value) {
-  char label[24];ControlsUI::value(label,sizeof(label),id,value);
+  char label[24];ControlsUI::protocolValue(label,sizeof(label),id,value);
   const size_t n=strlen(label);
   if(at+2+n>capacity)return at;
   out[at]=value;out[at+1]=uint8_t(n);memcpy(out+at+2,label,n);return at+2+n;
